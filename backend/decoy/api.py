@@ -39,12 +39,12 @@ async def lifespan(app):
     rt.start()
     state["lab"] = LabService(rt)
     state["lab"].train_async()   # about 3 s in the background; GET /api/v2/model reports the state
-    print("\n  DECOY is ready ->  http://127.0.0.1:8000   (risk numbers appear a few seconds after you sign in)\n", flush=True)
+    print("\n  ATHENA is ready ->  http://127.0.0.1:8000   (risk numbers appear a few seconds after you sign in)\n", flush=True)
     yield
     rt.stop()
 
 
-app = FastAPI(title="DECOY", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)  # no public schema surface
+app = FastAPI(title="ATHENA", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)  # no public schema surface
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:8000", "http://127.0.0.1:8000"],
                    allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
 
@@ -180,7 +180,7 @@ _geo = {}
 @app.get("/api/geo")
 def geo(u=Depends(user_for("read"))):
     if not _geo:
-        for k, fn in (("buildings", "osm_buildings.json"), ("features", "osm_features.json")):
+        for k, fn in (("buildings", "osm_buildings.json"), ("features", "osm_features.json"), ("roads", "osm_roads.json")):
             p = DATA / fn
             _geo[k] = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
     return _geo
@@ -276,9 +276,31 @@ def autonomy(b: Autonomy, u=Depends(user_for("settings"))):
 
 @app.post("/api/freeze")
 def freeze(u=Depends(user_for("freeze"))):
-    state["rt"].autonomy = "suggest"
-    state["rt"].note("setting", "warn", f"KILL SWITCH: {u['sub']} froze autonomy (suggest-only).")
-    return dict(autonomy="suggest")
+    return state["rt"].emergency_stop(u["sub"])
+
+
+@app.post("/api/pause")
+def pause(b: Toggle, u=Depends(user_for("settings"))):
+    state["rt"].paused = b.on
+    state["rt"].note("setting", "info", f"{u['sub']} {'paused' if b.on else 'resumed'} the simulation clock.")
+    return dict(paused=b.on)
+
+
+@app.post("/api/resume")
+def resume(u=Depends(user_for("freeze"))):
+    return state["rt"].resume(u["sub"])
+
+
+class DecoyReq(BaseModel):
+    node: str = Field(pattern=ID)
+
+
+@app.post("/api/decoy")
+def decoy(b: DecoyReq, u=Depends(user_for("fix"))):
+    try:
+        return state["rt"].deploy_decoy(b.node, u["sub"])
+    except ValueError as e:
+        raise HTTPException(422, str(e))
 
 
 class Speed(BaseModel):
@@ -339,9 +361,10 @@ class Fix(BaseModel):
 
 @app.post("/api/fix")
 def fix(b: Fix, u=Depends(user_for("fix"))):
-    ok = state["rt"].apply_fix(b.id, u["sub"])
-    if not ok:
-        raise HTTPException(404, "unknown or already applied")
+    try:
+        state["rt"].apply_fix(b.id, u["sub"])
+    except ValueError as e:
+        raise HTTPException(409, str(e))
     return dict(ok=True)
 
 
@@ -411,7 +434,7 @@ def chaos(u=Depends(user_for("chaos"))):
     rt.health["restarts"] += 1
     rt.health["last_restart"] = f"analytics worker killed by {u['sub']} and restarted by the supervisor"
     rt.bb.append("module_restart", dict(module="analytics", by=u["sub"], note="chaos test"), actor=u["sub"])
-    rt.note("health", "warn", "Chaos test: analytics worker killed; supervisor restarted it. The plant never depended on DECOY (it sits beside the control path).")
+    rt.note("health", "warn", "Chaos test: analytics worker killed; supervisor restarted it. The plant never depended on ATHENA (it sits beside the control path).")
     rt.dirty = True
     return dict(ok=True)
 

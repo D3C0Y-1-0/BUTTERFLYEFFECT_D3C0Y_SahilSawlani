@@ -115,8 +115,21 @@ class Planner:
             return 0.0
         return float(self.P.loss(ev)["L"])
 
-    def best_slot(self, fix: Fix, hours=(2.0, 3.0, 4.0, 14.0)):
-        return min(((self.downtime_cost(fix, h), h) for h in hours))
+    def dt_cached(self, fix: Fix, hour: float):
+        c = self.__dict__.setdefault("_dt", {})
+        k = (fix.id, hour)
+        if k not in c:
+            c[k] = self.downtime_cost(fix, hour)
+        return c[k]
+
+    def best_slot(self, fix: Fix, hours=(1.0, 2.0, 3.0, 4.0, 5.0, 14.0, 22.0)):
+        return min(((self.dt_cached(fix, h), h) for h in hours))
+
+    def severity(self, fix: Fix) -> float:
+        """1 (ordinary) to 4 (listed as exploited in the wild and likely to be used): how urgent a fix is, from the real CVE feed."""
+        a = self.ward["assets"].get(fix.target or "")
+        c = self.T.snap["cves"].get((a or {}).get("cve") or "", {}) if a else {}
+        return 1.0 + (1.0 if c.get("in_kev") else 0.0) + 2.0 * float(c.get("epss") or 0.0)
 
     # ---- CELF lazy greedy on net benefit per effort unit
     def plan(self, defence: Defence | None, budget: float = 12.0, now_hour: float | None = None, base_loss: float | None = None, catalog=None, dt_weight: float = 1.0):
@@ -188,13 +201,44 @@ class Planner:
         m.Minimize(sum(int(steps[i]["gain"] / 10) * w * x[i, w] for i in range(len(chosen)) for w in range(weeks)))
         s = cp_model.CpSolver(); s.parameters.max_time_in_seconds = 5
         st = s.Solve(m)
-        out = []
-        for i, f in enumerate(chosen):
-            wk = next((w for w in range(weeks) if st in (cp_model.OPTIMAL, cp_model.FEASIBLE) and s.Value(x[i, w])), i % weeks)
-            dcost, hour = self.best_slot(f)
-            out.append(dict(fix=f.meta(), week=wk + 1, day="Sunday", hour=hour, downtime_min=int(f.events(0)[0]["dur_h"] * 60) if f.events(0) else 0,
-                            downtime_loss=round(dcost, 1), gain=steps[i]["gain"]))
-        out.sort(key=lambda r: (r["week"], r["hour"]))
+        DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        LOAD = [1.0, 1.0, 1.0, 1.0, 1.05, 0.8, 0.7]     # SYNTHETIC: water and power demand by weekday (weekends are lighter)
+        HOURS = (1.0, 2.0, 3.0, 4.0, 5.0, 14.0, 22.0)
+        DELAY = 0.012                                    # SYNTHETIC: share of a fix's benefit lost for each day it waits, scaled by severity
+        used, out = set(), []
+        order = sorted(range(len(chosen)), key=lambda i: -steps[i]["gain"])     # most valuable fix picks its slot first
+        wk_of = {i: next((w for w in range(weeks) if st in (cp_model.OPTIMAL, cp_model.FEASIBLE) and s.Value(x[i, w])), i % weeks) for i in range(len(chosen))}
+        for i in order:
+            f = chosen[i]
+            wk = wk_of[i]
+            sev, gain = self.severity(f), steps[i]["gain"]
+            has_out = bool(f.events(0))
+            if not has_out:   # virtual patch, MFA, closing a link: no restart, so no need to wait for a quiet night. Most valuable first, in working hours
+                rank = sum(1 for j in order if j != i and chosen[j].events(0) == [] and wk_of[j] == wk and order.index(j) < order.index(i))
+                day_i, hour, dcost = min(rank, 4), 10.0, 0.0
+                score_note = "no restart needed, so it is done in working hours, most valuable first"
+            else:
+                best = None
+                for d in range(7):
+                    for h in HOURS:
+                        if (wk, d) in used:
+                            continue
+                        oc = self.dt_cached(f, h) * LOAD[d]
+                        delay = gain * DELAY * sev * (wk * 7 + d)
+                        sc = oc + delay
+                        if best is None or sc < best[0]:
+                            best = (sc, d, h, oc)
+                if best is None:
+                    best = (0.0, 0, HOURS[0], self.dt_cached(f, HOURS[0]))
+                _, day_i, hour, dcost = best
+                used.add((wk, day_i))
+                score_note = f"lowest total of outage cost and waiting cost (severity {sev:.1f}, benefit {gain:,.0f})"
+            first = (wk == 0 and not has_out and day_i == 0)
+            when = "Now" if first else f"{DAYS[day_i][:3]} {int(hour):02d}:00" + (f" · wk {wk + 1}" if wk else "")
+            out.append(dict(fix=f.meta(), week=wk + 1, day=DAYS[day_i], day_index=day_i, hour=hour, when=when, no_outage=not has_out,
+                            downtime_min=int(f.events(0)[0]["dur_h"] * 60) if has_out else 0, downtime_loss=round(dcost, 1), gain=gain, severity=round(sev, 2),
+                            reason=score_note))
+        out.sort(key=lambda r: (r["week"], r["day_index"], r["hour"]))
         return out
 
     # ---- Ask-First

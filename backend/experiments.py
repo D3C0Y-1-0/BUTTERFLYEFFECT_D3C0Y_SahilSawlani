@@ -436,7 +436,32 @@ def e11(ctx):
                         note="Pure-Python edge loop over vectorised worlds; no GPU, single core. Second-city generation from config is NOT part of this build."), met=bool(res[2]["seconds"] < 60))}
 
 
-REG = {"E1": e1_e2, "E2": e1_e2, "E3": e3_e4, "E4": e3_e4, "E5": e5, "E6": e6, "E7": e7, "E8": e8, "E9": e9_e12_e13, "E12": e9_e12_e13, "E13": e9_e12_e13, "E10": e10, "E11": e11}
+
+# ------------------------------------------------------------------ E17: the same system on growing batches of attacks
+def e17(ctx, sizes=(10, 20, 40, 80, 160, 320)):
+    from decoy.runtime import Runtime
+    rt = ctx.get("rt") or Runtime(sync=True, n_samples=2000, verbose=False)
+    ctx["rt"] = rt
+    S, secs = [], []
+    t0 = time.time()
+    for k in range(max(sizes)):
+        S += scenarios(rt, 1, 20000 + k, True)
+        secs.append(time.time() - t0)
+    rows = []
+    for n in sizes:
+        B = S[:n]; M = lambda key: float(np.mean([x[key] for x in B]))
+        hurt = [x for x in B if x["executed_none"]]
+        dm = [x["detect_min"] for x in B if x["detect_min"] is not None]
+        rows.append(dict(batch=n, seconds=round(secs[n - 1], 1), per_attack_s=round(secs[n - 1] / n, 2),
+                         detected_pct=round(100 * float(np.mean([x["detected"] for x in B])), 1), median_detect_minutes=float(np.median(dm)) if dm else None,
+                         harmful_without_response=len(hurt), loss_decoy=round(M("live")), loss_none=round(M("none")), loss_iso=round(M("iso")),
+                         loss_cut_pct=round(100 * (1 - M("live") / max(1.0, M("none"))), 1), reached_physical_pct=round(100 * M("executed_live"), 1),
+                         devices_cut=round(M("devices_cut_decoy"), 1), contained_pct=round(100 * float(np.mean([x["contained"] for x in B])), 1)))
+    ok = all(r["loss_decoy"] < r["loss_none"] for r in rows)
+    return {"E17": dict(claim="Performance holds as the batch of attacks grows", target="DECOY loses less service than no response at every batch size", result=dict(rows=rows, note="Each batch is the first N attacks of one run of random attack types, entries and targets, so bigger batches include the smaller ones. Numbers are whatever the run produced."), met=bool(ok))}
+
+
+REG = {"E1": e1_e2, "E2": e1_e2, "E3": e3_e4, "E4": e3_e4, "E5": e5, "E6": e6, "E7": e7, "E8": e8, "E9": e9_e12_e13, "E12": e9_e12_e13, "E13": e9_e12_e13, "E10": e10, "E11": e11, "E17": e17}
 
 
 def main():

@@ -1,4 +1,4 @@
-# DECOY — predict, explain and heal city infrastructure without switching it off
+# ATHENA — predict, explain and heal city infrastructure without switching it off
 
 A working prototype for **D3COY 1.0 · PS03** (AI-based critical-infrastructure cyber-risk prediction), built around a simulated **Mumbai ward (Parel–Sion–Matunga)**.
 
@@ -13,11 +13,20 @@ Read [PLAN.md](PLAN.md) (design, algorithms, honest deviations in §27) and [WOR
 
 ## Run it (Windows)
 
+**You need (once):** 64-bit **Python 3.11, 3.12 or 3.13** and **Node.js LTS** (only used to build the interface). Install them with
+`winget install Python.Python.3.12` and `winget install OpenJS.NodeJS.LTS` (or from python.org / nodejs.org), then open a **new** PowerShell window.
+If PowerShell refuses to run scripts: `Set-ExecutionPolicy -Scope Process Bypass`.
+
 ```powershell
 .\run.ps1          # creates the venv, builds the UI on first run, starts http://127.0.0.1:8000 (restarts itself if it ever stops)
 ```
 Open http://127.0.0.1:8000, click a demo account (the login page shows live TOTP codes because `DECOY_DEMO=1`), sign in, press **▶ Tour**.
 Boot takes ~10 s; the first risk analytics take ~30 s (they cache to `data/`).
+
+**If the first run fails** with `numpy ... meson ... Unknown compiler` or `No module named uvicorn`: your Python has no ready-made packages (32-bit, or too new / too old). `run.ps1` now checks this, installs wheels only (nothing is compiled) and says what to install. Delete the `.venv` folder after switching Python, then run `.
+un.ps1` again.
+
+**Map controls (mouse only):** wheel = zoom · hold + drag = move · right-button drag (or Shift + drag) = turn · click a device = its card, blast radius and way in · `F` = full screen · `1`-`4` = Overview / Water / Hospitals / Mumbai. The side panel starts closed: pick a page on the left rail or press **Panel**.
 
 Developing the UI: `cd frontend && npm run dev` (port 5173 proxies to the API).
 

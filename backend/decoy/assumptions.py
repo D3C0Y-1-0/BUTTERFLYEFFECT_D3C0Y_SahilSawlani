@@ -12,6 +12,7 @@ ASSUMPTIONS = {
     "required_pressure_m": {"value": 15.0, "why": "PDD full-service pressure"},
     "generator_autonomy_h": {"value": 8.0, "why": "Hospital backup diesel generator fuel autonomy"},
     "w_hospital_hour": {"value": 2500.0, "why": "One hospital-hour without water/power counted as 2500 household-hours (critical-service weight)"},
+    "inr_per_household_hour": {"value": 70.0, "why": "Rough rupee value of one household losing water and power for an hour (value of lost service, order of magnitude)"},
     "w_mwh": {"value": 700.0, "why": "1 MWh unserved ~ 700 households for an hour at ~1.4 kWh/h"},
     "repair_h": {"plc": 8.0, "rtu": 6.0, "valve": 6.0, "breaker": 3.0, "breaker_lockout": 14.0, "bms": 4.0,
                  "why": "Time to restore a hijacked controller: forensic validation + re-flash + crew dispatch before it may return to service"},

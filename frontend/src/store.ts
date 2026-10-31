@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-export type View = "city" | "path" | "fix" | "lab" | "defend" | "zeroday" | "proof" | "safety";
+export type View = "city" | "predict" | "path" | "fix" | "lab" | "defend" | "zeroday" | "proof" | "safety" | "how" | "why";
 
 export interface State {
   token: string | null; user: string | null; role: string | null;
@@ -10,13 +10,13 @@ export interface State {
   hist: { t: number; p: number; live: number; none: number; iso: number }[];
   toast: { id: number; sev: string; text: string } | null;
   judge: number | null; pathSel: any; connected: boolean; quality: number; booting: boolean; safetyTab: "certin" | "security";
-  labNodes: string[]; labStart: string | null;
+  labNodes: string[]; labStart: string | null; marks: { t: number; label: string; wall: number; before?: number; after?: number }[]; focus: any | null; side: boolean; full: boolean; graph: boolean; blast: boolean; paused: boolean;
 }
 
 const init: State = {
   token: sessionStorage.getItem("decoy_token"), user: sessionStorage.getItem("decoy_user"), role: sessionStorage.getItem("decoy_role"),
   st: null, geo: null, snap: null, ana: null, exp: null, view: "city", selected: null, hovered: null,
-  layers: { links: true, risk: false }, stack: false, xray: false, hist: [], toast: null, judge: null, pathSel: null, connected: false, quality: 2, booting: true, safetyTab: "certin", labNodes: [], labStart: null,
+  layers: { links: true, risk: false }, stack: false, xray: false, hist: [], toast: null, judge: null, pathSel: null, connected: false, quality: 2, booting: true, safetyTab: "certin", labNodes: [], labStart: null, marks: [], focus: null, side: false, full: false, graph: false, blast: true, paused: false,
 };
 
 let state = init;

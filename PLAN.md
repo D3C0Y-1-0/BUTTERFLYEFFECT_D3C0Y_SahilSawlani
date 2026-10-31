@@ -1,4 +1,4 @@
-# DECOY — A City-Defence System That Predicts, Explains and Heals
+# ATHENA — A City-Defence System That Predicts, Explains and Heals
 **D3COY 1.0 · PS03 · Master build plan (for Claude and the team) · v2**
 
 > **Claude, read in this order:** §1 → §3 → §5 → §6 → §8 → §14. Everything else is reference.
@@ -8,7 +8,7 @@
 
 ## 1. The 60-second version (what a judge must understand)
 
-**What it is.** DECOY watches a simulated Mumbai ward: computers, control devices, water pipes, power lines, hospitals. It answers four questions in plain language:
+**What it is.** ATHENA watches a simulated Mumbai ward: computers, control devices, water pipes, power lines, hospitals. It answers four questions in plain language:
 
 1. **What can hurt the city most?** (not "which bug is worst" — *which device, if hacked, makes people lose water or power*)
 2. **What will the attacker probably do next?** (predicted attack path)
@@ -40,11 +40,11 @@
 
 ---
 
-## 2. What already exists — and how DECOY uses it (not ignores it)
+## 2. What already exists — and how ATHENA uses it (not ignores it)
 
 We **include** every established layer, so a judge sees we know the field, then add what's missing.
 
-| Existing category | Real examples | How DECOY includes it | What DECOY adds on top |
+| Existing category | Real examples | How ATHENA includes it | What ATHENA adds on top |
 |---|---|---|---|
 | **SIEM** (collects & correlates logs) | Splunk, IBM QRadar | **Log Collector** ingests syslog/JSON events into the same graph; correlation rules map events to devices | Events are tied to *physical* consequence, not just alerts |
 | **SOAR** (automated playbooks) | Cortex XSOAR | **Playbook Runner**: every remedy is a versioned, reviewable playbook with approve / auto / rollback | Playbooks are chosen by simulated service impact; unsafe ones are blocked by the Safety Check |
@@ -300,7 +300,7 @@ Every step has *Skip*, *Back* and a *"Explain this"* drawer. No jargon without a
 | Decide what to ask | **Question cards with information-gain bars** | Longest bar = ask first |
 | Watch the self-healing | **"Surgery view"**: the cut link animates as a snip; quarantined cluster is hatched; a counter shows utilities still running | Proves "didn't shut everything" |
 | See decoys | **X-ray toggle**: real devices solid, decoys shimmer violet | Clear for staff; invisible to attackers |
-| Compare outcomes | **Ghost timeline split-screen**: "no action" vs "DECOY" tank levels, same scrubber | Replay any incident |
+| Compare outcomes | **Ghost timeline split-screen**: "no action" vs "ATHENA" tank levels, same scrubber | Replay any incident |
 | Show uncertainty | **Soft-edged bands** around values and "unsure" markers | Honest ranges |
 | See learning | **Normal-behaviour envelope** that visibly adapts over days | Shows self-learning |
 
@@ -345,15 +345,15 @@ A language model may only reword these structured fields into a short operating 
 
 ---
 
-## 10. Security of DECOY itself (so we can say it is hard to attack)
+## 10. Security of ATHENA itself (so we can say it is hard to attack)
 
 > Honest claim for the judge: **"Secure by design, tested, and fails safe."** Never "unhackable".
 
 ### 10.1 Security principles we follow (name them to the judge)
-| Principle | How DECOY applies it |
+| Principle | How ATHENA applies it |
 |---|---|
 | **Least privilege** | Each module runs with only what it needs; operator, analyst, executive roles differ; the engine cannot change the live plant without a signed, approved action |
-| **Fail-safe defaults** | Default autonomy is "suggest"; unknown = deny; if DECOY crashes, the plant keeps running (it is *beside* control, not in the control path) |
+| **Fail-safe defaults** | Default autonomy is "suggest"; unknown = deny; if ATHENA crashes, the plant keeps running (it is *beside* control, not in the control path) |
 | **Complete mediation** | Every request checked every time (authentication + role + action); no cached "already approved" |
 | **Zero trust** | No internal service trusted by location; service-to-service **mutual TLS**; short-lived tokens |
 | **Separation of duty** | High-impact actions (isolate a cluster, firmware change) need **two-person approval** unless pre-authorised and twin-verified |
@@ -361,7 +361,7 @@ A language model may only reword these structured fields into a short operating 
 | **Economy of mechanism** | Small trusted core: the Safety Check and Playbook Runner are small, tested modules |
 | **Open design** | Security doesn't depend on secrecy; algorithms and threat model are documented |
 | **Psychological acceptability** | Secure path is the easy path (clear confirmations, undo) so operators don't bypass it |
-| **Assume breach (of ourselves)** | We monitor DECOY with DECOY: it watches its own services and logs |
+| **Assume breach (of ourselves)** | We monitor ATHENA with DECOY: it watches its own services and logs |
 
 ### 10.2 Concrete controls
 - **Authentication:** strong password hashing (Argon2id), **MFA (TOTP)** for operator/analyst roles; session tokens short-lived, rotated, HttpOnly/Secure/SameSite cookies.
@@ -372,14 +372,14 @@ A language model may only reword these structured fields into a short operating 
 - **Data integrity:** all offline snapshots **signed (Ed25519)** with version counter (anti-replay); **threat feeds verified** (source pinning, checksum, sanity-check against last known) so a poisoned feed cannot silently change rankings; inventory changes above a threshold require review.
 - **Tamper-evident Black Box Log:** each entry includes the hash of the previous one (hash chain); periodic anchors exported; any edit is detectable.
 - **Secrets:** no secrets in code; environment/secret store; keys rotated; private keys never in the UI container.
-- **Supply chain:** pinned dependencies with hashes, **SBOM for DECOY itself**, `pip-audit` / `npm audit` in CI, minimal container images, non-root containers, read-only filesystems.
+- **Supply chain:** pinned dependencies with hashes, **SBOM for ATHENA itself**, `pip-audit` / `npm audit` in CI, minimal container images, non-root containers, read-only filesystems.
 - **LLM safety (if used):** model receives only structured card fields, outputs plain text only, no tool/network access, output checked against allowed vocabulary; guards against prompt-injection from device names/log text (treated as data, escaped).
 - **Safe autonomy:** the Healer cannot act outside the twin-verified action list; **kill switch** and "freeze autonomy" button; rate limit on actions (no action storms).
 - **Safe simulation:** the attack simulator only edits the simulated graph/physics; it contains no exploit code and cannot reach real systems.
 - **Tool-attack defences (from the research list):** fake inventory → provenance + review; fake threat feed → signed/sanity-checked; poisoned learning → anomaly windows excluded from training.
 
 ### 10.3 Threat model and testing (what we show)
-- **STRIDE table** for DECOY itself (spoofing, tampering, repudiation, info disclosure, DoS, privilege escalation) with the control that answers each.
+- **STRIDE table** for ATHENA itself (spoofing, tampering, repudiation, info disclosure, DoS, privilege escalation) with the control that answers each.
 - **Tests run before demo:** `bandit` (Python), `semgrep`, `pip-audit`/`npm audit`, **OWASP ZAP** baseline scan against the running UI/API, API fuzzing of the parsers, hash-chain tamper test, role-escalation tests. Report results honestly (including what was found and fixed).
 - **Judge-facing "Security" panel:** shows MFA on, TLS on, signed data verified, log chain intact (green tick = hash verified), dependency scan status.
 
@@ -509,7 +509,7 @@ v3 removes the list of reductions. Every required component stays required. Wher
 - *CERT-In 20-smart-city study (Feb 2025)* — most common weaknesses: unauthorised remote connections, badly configured SNMP. Used to seed misconfiguration rates.
 
 ### 19.1 Compliance features (each is an engine function with a UI element)
-| Requirement | DECOY feature | How the system does it itself |
+| Requirement | ATHENA feature | How the system does it itself |
 |---|---|---|
 | Report within 6 h | **6-hour Clock** on every confirmed incident, with a countdown ring | Incident created → clock starts at detection time → report package auto-assembled (what, when, affected assets, techniques, actions taken, contact fields) → operator one-click *Review & Export*; escalates visibly at 4 h and 5 h |
 | 180-day logs in India | **Log Vault**: all events stored in an India-local store with 180-day rolling retention | Retention enforced by a scheduled job; deletion only after 180 d; a "Vault health" tile shows days retained and chain integrity; deployment docs state in-India hosting |
@@ -571,7 +571,7 @@ A "CERT-In Readiness" panel: open incidents with 6-hour rings; log retention day
 | Poisoned or stale feed | Signature/checksum, sanity-check vs previous snapshot, **staleness badges**, scores record the data date |
 | Clock drift | **Time Guard** flags affected events as time-uncertain |
 | Missed 6-hour deadline | **6-hour Clock** escalates at 4 h / 5 h; report pre-assembled |
-| Model or service crash | Health supervisor restarts modules; DECOY sits outside the plant control path, so the plant is unaffected; Black Box records the gap |
+| Model or service crash | Health supervisor restarts modules; ATHENA sits outside the plant control path, so the plant is unaffected; Black Box records the gap |
 | UI heavy on slow laptop | **Adaptive quality**: UI measures frame time and automatically lowers effects (bloom, particle count, LOD distance) while keeping all information visible |
 | Telemetry gaps | State estimator fills gaps from physics; marks values "estimated" |
 | Inventory changes mid-run | Incremental graph diff; only affected paths/sims recomputed |
@@ -601,7 +601,7 @@ A "CERT-In Readiness" panel: open incidents with 6-hour rings; log retention day
 - **Shaders/effects (each earns its place):** liquid level shader (tank fill, real data driven), flow shader (pipe particles, speed = flow rate, dim = low pressure), risk terrain height-field (smoothed from node risk), ripple dome (blast radius), hatch shader for quarantine, shimmer shader for decoys, selective bloom only on the "hot" element, depth fog for focus.
 - **Focus + context:** selecting an object dims everything not related (paths, dependants, upstream) so the story stands out; hover = tooltip in plain words; click = drawer.
 - **Performance budget:** ≥ 55 fps at 10,000 nodes: GPU instancing for nodes and edges, level-of-detail by distance, GPU colour-id picking, simulation and layout in web workers, adaptive quality scaler (§21). Must hold on a normal laptop.
-- **Time machine:** scrubber replays any incident; **ghost split** shows "no action" vs "DECOY" side by side with the same camera.
+- **Time machine:** scrubber replays any incident; **ghost split** shows "no action" vs "ATHENA" side by side with the same camera.
 - **Accessibility:** colour + shape + pattern; labels toggle; keyboard navigation; reduced-motion mode that replaces animations with static arrows; screen-reader summary of the current state ("3 devices at high risk, 1 incident, 6-hour clock 04:12 left").
 
 ### 22.3 Unique components by task (extends §8.4)
@@ -625,7 +625,7 @@ Norman: visible state? feedback < 100 ms? signifiers clear? mapping natural? con
 ## 23. CERT-In Smart City Guidelines — verified chapter map (read from the supplied PDF)
 The chapter list is now confirmed from the PDF's contents page. **Chapter numbers may be shown in the UI.** (Ch. = chapter of *Cyber Security Guidelines for Smart City Infrastructure*, CERT-In with Kaspersky, 2025.)
 
-| DECOY feature | Guideline chapter / section | What the guideline says that we implement |
+| ATHENA feature | Guideline chapter / section | What the guideline says that we implement |
 |---|---|---|
 | Surgical isolation, micro-segmentation, default-deny between zones | **4.4 Network segmentation and isolation**; **5 Network Security** | "Communication within different VLANs should be disabled by default and allowed on need basis"; micro-segmentation to limit lateral movement; air gap / data diode for ultra-sensitive operations |
 | Zero-trust, least privilege, threat modelling | **4.1 Security by design**; **6.5 IoT & device authentication** | Zero Trust Architecture, threat modelling, multi-layered defence |
@@ -642,7 +642,7 @@ The chapter list is now confirmed from the PDF's contents page. **Chapter number
 | **Explainability; final authority with human operators; accountability** | **10.1 AI ethical considerations** | Every card explains why; **autonomy dial defaults to human approval for high-impact actions**; Black Box Log assigns responsibility |
 | DR/BCP, redundancy, drills | **11** | Time-to-survive vs time-to-repair, manual fallback, scheduled drills in Red-Team Mode |
 | 6-hour reporting, point of contact, 180-day India logs | **12 Compliance and legal** | 6-hour Clock, contact fields (incident@cert-in.org.in, 1800-11-4949 as shown in guideline), Log Vault |
-| API security (BOLA, broken auth, BFLA, resource consumption, SSRF, misconfig, inventory, unsafe consumption; rate limit, gateway, IP allow-list, logging) | **13** | DECOY's own API is built and tested against this list |
+| API security (BOLA, broken auth, BFLA, resource consumption, SSRF, misconfig, inventory, unsafe consumption; rate limit, gateway, IP allow-list, logging) | **13** | ATHENA's own API is built and tested against this list |
 | Incident response phases and playbooks (preparation, detection, containment, eradication, recovery, post-incident review; Who/What/When/Where/How) | **15 Crisis management & IR** | Playbook cards use exactly these phases and fields; severity levels and SLAs shown |
 | SIEM/SOAR, CERT-In feeds (CMTX, CSK, NCCC) | **16** | Log Collector (SIEM-style), Playbook Runner (SOAR-style); feed adapters named in the UI |
 | SBOM, vendor access control | **17** | SBOM Reader; vendor VPN as an edge with review |
@@ -657,7 +657,7 @@ The chapter list is now confirmed from the PDF's contents page. **Chapter number
 
 ## 24. Always-on runtime (dynamic, self-running, attackable on demand)
 - The backend runs a **continuous simulation clock** (1 real second = 1 simulated minute by default; speed adjustable). Demand follows a daily curve, tanks fill and drain, power flows, telemetry streams to the UI over WebSocket.
-- **Autopilot Adversary** (toggle, default ON in demo): a background red-team agent randomly launches attack campaigns (entry point chosen from exposed nodes, techniques sampled by EPSS/KEV probabilities). DECOY must detect, predict, and heal without any human click.
+- **Autopilot Adversary** (toggle, default ON in demo): a background red-team agent randomly launches attack campaigns (entry point chosen from exposed nodes, techniques sampled by EPSS/KEV probabilities). ATHENA must detect, predict, and heal without any human click.
 - **Manual attack console** (always available): choose entry point, technique, target actuator, intensity; or click "Zero-day", "Telemetry spoof", "Breaker wear attack", "Vendor-VPN breach".
 - **Autonomy dial:** Observe / Suggest / Auto-low-risk / Auto-all. In Suggest, incidents queue for human approval (CERT-In 10.1 human authority).
 - **Reset / replay** buttons; every run is seeded and logged so it can be replayed.
@@ -707,7 +707,7 @@ Map Builder (28 devices, 62 links incl. 8 hidden/uncertain, real OSM locations) 
 | E6 | Fast Guesser is accurate, calibrated and fast | ✔ yes | coverage 0.928 (target 0.90), Spearman 0.978, 19641× faster than the exact simulation, worst-10% escalated 100% |
 | E7 | Threat layer anticipates exploitation (back-test, 30 days before KEV listing) | ✘ **missed** | 40% of 40 later-KEV CVEs had EPSS ≥ 0.1 thirty days before listing (median percentile 0.541) |
 | E8 | Ranking is stable under +-20% assumption changes | ✔ yes | worst top-10 overlap 10/10 over 8 perturbations |
-| E9 | Healing is surgical: less service lost than no response or isolate-everything, with far fewer devices cut off | ✔ yes | mean service loss: DECOY 2.5k vs no response 21.7k vs isolate-everything 44.1k; devices cut 0.2 vs 27; physical effect reached 25.0% vs 58.8%; detected 60.0% (median 32.0 min) |
+| E9 | Healing is surgical: less service lost than no response or isolate-everything, with far fewer devices cut off | ✔ yes | mean service loss: ATHENA 2.5k vs no response 21.7k vs isolate-everything 44.1k; devices cut 0.2 vs 27; physical effect reached 25.0% vs 58.8%; detected 60.0% (median 32.0 min) |
 | E10 | Unseen attack types are caught (trained on standard/insider only; tested on zero-day, wear, spoof) | ✔ yes | fused median detection delay 10–20 min on held-out attack types; false-alarm minutes over 3 normal days: 0 |
 | E11 | The reachability engine scales | ✔ yes | 100 nodes: 0.01 s; 1,000 nodes: 0.31 s; 10,000 nodes: 4.62 s per 500 attack worlds |
 | E12 | Safety Check blocks unsafe actions | ✔ yes | 16 candidate actions blocked in scenarios; 0 scenario(s) where the response left hospitals worse off; isolate-everything blocked at 17/24 start hours |
@@ -787,7 +787,7 @@ Measured on 24 random zero-day campaigns (autonomy "Auto (safe steps)", search r
 ### Interface changes
 * **Palette**: only the supplied four colours (cream `#FFEAD3`, aqua `#BFE7EA`, apricot `#E89B5B`, terracotta `#D46743`) plus tints/shades of them. Aqua = safe/water, apricot = watch/power, terracotta = attacker/danger. One file: `frontend/src/palette.ts`.
 * **Layout**: the map has its own cell and nothing floats over its centre. Left rail = 7 pages (City, Paths, Fix, Defend, Zero-day, Proof, Safety). Right panel = collapsible boxes with one headline value each (progressive disclosure). Heartbeat + service numbers live in the top bar. Automatic pop-ups removed; one small message at a time after your own actions.
-* **Every page starts with a one-line answer**: City "Is the ward safe?", Paths "How could a hacker reach water or power?", Fix "What to fix first?", Defend "Watch DECOY stop an attack", Zero-day "An attack nobody has seen before", Proof "Does it really work?", Safety "CERT-In and our own security".
+* **Every page starts with a one-line answer**: City "Is the ward safe?", Paths "How could a hacker reach water or power?", Fix "What to fix first?", Defend "Watch ATHENA stop an attack", Zero-day "An attack nobody has seen before", Proof "Does it really work?", Safety "CERT-In and our own security".
 * **Movement**: drag = turn, right-drag = move, scroll = zoom towards the cursor, **W A S D / arrows = fly forward/back/sideways, Q/E = down/up**, plus an on-map pad (hold to repeat).
 * **Attack path**: thick terracotta tube with a dark halo, drawn on top of buildings, numbered stops, name labels, a moving dark comet; everything else fades so the route is unmistakable.
 * **Healing animation**: an attacker landing = terracotta ring; a defence working = aqua shield dome, rising beam, sparkles and expanding ring; a cut link shows a ✕; recovery = rings over the hospitals. The Defend page shows a pulsing "healing" badge and an animated 5-step tracker.
@@ -808,7 +808,7 @@ Measured on 24 random zero-day campaigns (autonomy "Auto (safe steps)", search r
 | "Simulate Compromise" with explicit preconditions, plausible paths, affected assets, service impact, risk before/after, recommendations | Only probabilistic Monte-Carlo and a client-side "assume breach" | **`lab.simulate_compromise`**: deterministic; a step needs reachability AND (vulnerable service OR weak access OR stolen credential without MFA); failed steps are reported with reasons; plausible / predicted / confirmed are labelled separately |
 | Mitigation simulator (MFA, restrict remote access, segmentation, patch, disable exposure, monitoring, vendor permissions, backups/IR) | Fix planner (patch / link / MFA / harden) | **All eight controls**, applied to an in-memory session (never the baseline), ranked by loss avoided per effort, plus minimum-cut options (fewest links or assets that separate attacker from every controller) |
 | Five defensive scenarios | Five generic attack modes only | **Five named scenarios**, each with assumptions, initial state, generated event timeline, effects, insights, recommendations, before/during/after risk |
-| Risk engine: ML + rules, defined target and horizon, explainable, moderate-CVSS-connected > isolated-critical | SaR via Monte-Carlo; GBM only as a speed-up | **RiskModel**: monotone gradient boosting trained on 140 control configurations x 27 assets, labelled by the Monte-Carlo attack worlds; 14 documented features; counterfactual explanations |
+| Risk engine: ML + rules, defined target and horizon, explainable, moderate-CVSS-connected > isolated-critical | SaR via Monte-Carlo; GBM only as a speed-up | **RiskModel**: monotone gradient boosting trained on 260 control configurations x 27 assets, labelled by the Monte-Carlo attack worlds; 15 documented features (incl. best-route chance); counterfactual explanations |
 | SQLite | JSON files only | `data/decoy_lab.db`: assets, edges, vulnerabilities, dependencies, events, runs; baseline separate from simulation runs |
 | REST API list | Partial | `/api/v2`: assets, asset detail, topology, vulnerabilities, telemetry, model + train, risk, explain, compare, simulate, attack paths, scenarios, mitigations, apply, compare, reset, events, optimize |
 | Automated tests incl. edge cases | 37 security tests only | **51 pytest tests** (`python -m pytest backend/tests`) |
@@ -820,7 +820,7 @@ Measured on 24 random zero-day campaigns (autonomy "Auto (safe steps)", search r
 * **Operational impact**: expected service loss (household-hour equivalents, WNTR/EPANET + pandapower oracle) given that the attacker already holds the asset, through links and service dependencies. An isolated asset reaches nothing, so it scores about 0 whatever its CVSS.
 * **Overall risk** = likelihood x impact, scaled so the top baseline asset = 100.
 * **Features** (14): from data: CVSS, EPSS, KEV, legacy, entry weight; from rules: exploit signal, exposure, hops from the internet, in-degree, weak access, unpatched; controls: MFA, virtual patch, share of inbound links closed. Monotone constraints guarantee that more exposure or weaker access can never lower the score and that a control can never raise it.
-* **Held-out quality**: whole control configurations are held out: Spearman 0.85, mean absolute error 0.019.
+* **Held-out quality**: whole control configurations are held out: Spearman 0.91, top-5 overlap 0.74, mean absolute error 0.013 (round 4; before: 0.85 / 0.66 / 0.019).
 * **Determinism**: fixed random numbers and fixed seeds; the same scenario and model version give identical output (tested).
 
 ### What the lab shows on the real ward
@@ -830,3 +830,39 @@ Measured on 24 random zero-day campaigns (autonomy "Auto (safe steps)", search r
 * Rules (thresholds EPSS >= 0.05, weak access >= 0.20, monitoring x 0.75, backups x 0.6) are stated assumptions; with them the ward is almost fully connected once a foothold exists, so single-link fixes often show no effect and the minimum-cut options matter.
 * The lab keeps a private copy of the threat model taken at start-up; answering "Ask-First" questions later does not change the lab baseline until restart.
 * All scenario events are generated; no payloads, credentials or equipment commands exist anywhere.
+
+
+## 31. UI v3, new pages and fixes (this round)
+
+| Area | What changed | Honest note |
+|---|---|---|
+| Layout | Side panel is **closed by default** and collapsible; left rail opens a page; full-screen map (`F`); 2D network view beside the 3D map | |
+| Map | Green grassy land, trees; one colour per layer; every device wears a pictogram (globe, key, firewall, camera, chip...) | Icons are drawn on a canvas, no image assets |
+| Mouse | wheel = zoom, drag = move, right-drag / Shift-drag = turn | |
+| Click a device | Floating card beside it (what it is, harm if hacked, priority, **blast radius**, way in, simulate, place decoy, fixes) with a close button | Blast radius uses the same probability weights as the "assume breach" tool |
+| Mumbai sites | 14 sites (BARC top priority, IT hubs, factories, hospitals, Marine Drive, Juhu, Gateway, CSMT, airport) on the surrounding land | Locations REAL (approximate) but drawn at their true direction, **not to scale**. What each site relies on is a SYNTHETIC assumption; the water/power physics covers the ward only |
+| Predict page | `/api/v2/forecast`: most likely targets, why, best next steps; accuracy shown (Spearman about 0.91, top-5 overlap about 0.74, error about 0.013) | Accuracy is against the simulator on unseen control configurations, not real incidents |
+| Scheduler | Replaced the fixed "Sunday" slot. Each restart fix gets the (day, hour) minimising outage cost x weekday demand + waiting cost x urgency (KEV/EPSS); no-restart fixes go first in working hours | Weekday demand factors and the waiting-cost rate are SYNTHETIC parameters (documented in `planner.schedule`) |
+| Paths | One most-dangerous route per entry point (before: all routes went through the vendor VPN). Random attacks use flattened entry weights and avoid repeating the last two entries | The vendor VPN remains the single likeliest door (largest entry weight) |
+| Insider | New attack that starts on an internal machine (no internet hop) | Detection can be late when the first action looks like an operator command (seen up to about 2 h in simulation) |
+| Heartbeat | `watch.shown` fades after the attacker is cut off, with phase and a repair countdown; incidents resolve on the faded level | The raw alarm is still returned as `watch.raw` |
+| Stop | Emergency stop halts running attacks, turns automatic attacks off and sets ask-first; Resume restores; Pause / Play for the clock | |
+| Fix errors | Applying a fix twice gives HTTP 409 "Already done" (shown calmly) instead of a 404 | |
+| How it works / Why us | Animated attack-vs-defence story (known, zero-day, prediction) and an evidence page built from `data/experiments.json` | Misses (E5, E7, E13, E15) are shown on the page |
+| Safety | One plain-language page; tamper test, air-gap files, self-healing test, supply-chain and audit boxes removed from the UI (the endpoints still exist) | |
+| Launcher | `run.ps1` finds 64-bit Python 3.11-3.13, installs wheels only, verifies the packages, rebuilds a broken `.venv` | numpy 2.4.x has no source build without a C compiler |
+
+
+## 32. Round 4: aerial-style map, full pages, live defence scoreboard (1 Nov 2026)
+| Area | What changed | Honest limit |
+|---|---|---|
+| Map | Sea in the west, land in the east, pale land; real OpenStreetMap roads and railways (`data/osm_roads.json`, 4,401 ways, served in `/api/geo`); 7,400 buildings in plaster / brick / glass colours with lighter roofs; procedural low blocks around the ward; no locked tiles; Mumbai sites kept on land; Hospitals, Water plants, Power views zoom in | Stylised, not photographic. The coastline is drawn, not surveyed. Roads exist only inside the ward box; roads out to the Mumbai sites are schematic |
+| Forecast accuracy | New feature `path_prob` (chance of the best route from the internet, Dijkstra on step chances), deeper trees, 260 set-ups. Held-out Spearman 0.852 -> 0.911, top-5 overlap 0.66 -> 0.74, error 0.0188 -> 0.0134 | Still measured against the simulator, not real incidents |
+| Paths | "What it would do" for the selected device (or last device of the route): people without service, hours, rupees (`/api/v2/impact`); "already hacked" box removed | People = homes x 4.5; Rs 70 per home-hour is an assumption |
+| Heartbeat | Every action (fix, decoy, attack, stop, plan approval, simulation) leaves a mark on the heartbeat line; the top bar shows "worst case before -> after" | The raw heartbeat is still the attack probability; fixes change risk, not that probability |
+| Selected device | A strip at the top of every side page shows the chosen device and page-specific facts | |
+| What-if | Spread replay on the map step by step with a climbing, then falling, risk heartbeat; proof tiles (model's top-5 vs what fell, reach before/after, risk removed); "Before and after" box commented out | The replay heartbeat weights steps by closeness to equipment; it is an index, not the live probability |
+| Defend | "Attack running" state before the alarm; numbered attack steps, what ATHENA did, and a scoreboard worked out from the live run (time to notice, time to cut, devices taken/cut, homes and hospitals served, home-hours and rupees saved, vs no response and vs cut everything); Latest events removed | |
+| Zero-day | Who responds removed; remedial steps, effectiveness scoreboard, what the model learned | |
+| Proof / Safety | Severity-vs-harm ranks with arrows and bars; Safety as gauges, dots and bars | |
+| How it works / Why us | Full-page (no map); heartbeat reacts to the story; 14 algorithms with plain words, reason and rules in dropdowns; Q&A and misses boxes removed | |

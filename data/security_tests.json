@@ -186,20 +186,13 @@
    "detail": ""
   }
  ],
- "summary": "37/37 automated security tests passed \u00b7 bandit: 0 high / 1 medium / 3 low \u00b7 pip-audit: 1 packages with known CVEs",
+ "summary": "37/37 automated security tests passed \u00b7 bandit: 0 high / 0 medium / 3 low \u00b7 pip-audit: 1 packages with known CVEs",
  "extra": {
   "bandit": {
    "HIGH": 0,
-   "MEDIUM": 1,
+   "MEDIUM": 0,
    "LOW": 3,
    "issues": [
-    {
-     "test": "B608",
-     "sev": "MEDIUM",
-     "file": "lab.py",
-     "line": 369,
-     "text": "Possible SQL injection vector through string-based query construction."
-    },
     {
      "test": "B110",
      "sev": "LOW",
@@ -218,7 +211,7 @@
      "test": "B110",
      "sev": "LOW",
      "file": "runtime.py",
-     "line": 152,
+     "line": 156,
      "text": "Try, Except, Pass detected."
     }
    ]
@@ -230,5 +223,5 @@
    ]
   }
  },
- "generated": "2026-10-31 20:44:09"
+ "generated": "2026-11-01 01:39:19"
 }

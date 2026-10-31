@@ -1,12 +1,13 @@
 """Runtime: the always-on loop. One tick = one simulated minute.
 
-live twin  : the city DECOY is defending
+live twin  : the city ATHENA is defending
 none twin  : same attack, no response (counterfactual)
 iso twin   : same attack, but the whole network is isolated when the incident is declared (counterfactual)
 """
 from __future__ import annotations
 
 import json
+import math
 import threading
 import time
 from collections import deque
@@ -57,6 +58,8 @@ class Runtime:
         self.ex_analytics = ThreadPoolExecutor(1)
         self.autonomy = "auto_low"
         self.autopilot = True
+        self.stopped = False
+        self.paused = False
         self.speed = 1.0
         self.running = False
         self.analytics = dict(version=0, computing=True)
@@ -142,8 +145,9 @@ class Runtime:
         while self.running:
             t = time.time()
             try:
-                with self.lock:
-                    self.tick()
+                if not self.paused:
+                    with self.lock:
+                        self.tick()
             except BaseException as e:  # health supervisor: log and keep running; the simulation loop must never die silently
                 try:
                     self.health["restarts"] += 1
@@ -191,6 +195,61 @@ class Runtime:
                 self._lab_register(c.zd, c, actor)
             self.note("attack_launched", "warn", f"[{actor}] {MODES[mode]} via {self.ward['assets'][c.entry]['name']} aiming at {self.ward['assets'][c.goal]['name']}", campaign=c.id, mode=mode, hidden=True)
             return c.public()
+
+    def emergency_stop(self, actor="operator"):
+        """Kill switch. Halts every running attack, turns the automatic attacker off and puts the defender into ask-first mode."""
+        with self.lock:
+            n = 0
+            for a in (self.adv, self.adv_none, self.adv_iso):
+                for c in a.campaigns:
+                    if c.state not in ("done", "contained"):
+                        c.state = "contained"
+                        n += a is self.adv
+            self.autopilot, self.autonomy, self.stopped = False, "suggest", True
+            self.note("kill_switch", "warn", f"STOP pressed by {actor}: {n} running attack(s) halted, automatic attacks off, autonomy set to ask-first.")
+            self.dirty = True
+            return dict(stopped=True, halted=n)
+
+    def resume(self, actor="operator"):
+        with self.lock:
+            self.autopilot, self.autonomy, self.stopped = True, "auto_low", False
+            self.next_launch = self.live.minute + 30
+            self.note("resume", "info", f"{actor} resumed the simulation: automatic attacks on, safe steps automatic.")
+            return dict(stopped=False)
+
+    def deploy_decoy(self, node, actor="operator"):
+        with self.lock:
+            a = self.ward["assets"].get(node)
+            if not a or node == "INTERNET":
+                raise ValueError("unknown device")
+            if any(d["attached_to"] == node for d in self.decoys.values()):
+                raise ValueError("a decoy is already next to this device")
+            did = f"DCY{len(self.decoys)+1:02d}"
+            self.decoys[did] = dict(id=did, attached_to=node, mimic="fake " + a["name"].split(" (")[0], placed=self.live.minute)
+            self.note("decoy_placed", "ok", f"{actor} placed decoy {did} next to {a['name']}.", decoy=did, node=node)
+            return self.decoys[did]
+
+    def _heartbeat(self):
+        """What the heartbeat shows. `raw` is the detector's alarm level. Once the attacker is cut off the alarm that is still ringing is the damage being
+        repaired, not a live attack, so the level shown decays (with a clear 'healing' note and a repair countdown) instead of sitting at 90 %."""
+        L, m, p = self.live, self.live.minute, float(self.last_p)
+        left = max([0] + [int(u - m) for d in (L.forced_off, L.breaker_open, L.valve_closed) for u in d.values() if u > m])
+        inc = next((i for i in reversed(self.incidents) if i["status"] in ("open", "contained")), None)
+        shown, phase, note = p, ("alarm" if p > 0.6 else "calm"), ""
+        if inc:
+            cut = next((s for s in inc["stages"] if s["stage"] == "Cut made"), None)
+            prop = next((q for q in self.proposals if q["incident"] == inc["id"] and q["status"] == "pending"), None)
+            if cut and not self.adv.active():
+                shown = p * math.exp(-(m - cut["minute"]) / 6.0)
+                phase = "healing"
+                note = f"Attacker cut off. {'Crew restoring equipment, about ' + str(left) + ' min left.' if left else 'Checking that everything is back to normal.'}"
+            elif prop:
+                phase = "waiting"
+                wait = max(0, ESCALATE_MIN - (m - prop["minute"]))
+                note = "A safe plan is ready." + (f" It applies by itself in about {wait} min." if self.autonomy in ("auto_low", "auto_all") else " Waiting for your OK.")
+            elif p > 0.6:
+                note = "Alarm raised. ATHENA is working out the safest response."
+        return dict(shown=round(float(shown), 3), raw=round(p, 3), phase=phase, note=note, repair_left=left)
 
     # ------------------------------------------------------------------ main tick
     def tick(self):
@@ -247,7 +306,7 @@ class Runtime:
                 Ls, Ns, Is = self.live, self.none, self.iso
                 inc["cost"] = dict(live=round(Ls.loss_composite()), none=round(Ns.loss_composite()), iso=round(Is.loss_composite()),
                                    live_hh=round(Ls.lost["hh_h"]), none_hh=round(Ns.lost["hh_h"]), iso_hh=round(Is.lost["hh_h"]))
-                self.note("incident_cost", "ok", f"Incident {inc['id']} final service loss (10 h after resolution): DECOY {inc['cost']['live']:,} | no response {inc['cost']['none']:,} | isolate-everything {inc['cost']['iso']:,} household-hour equivalents.", incident=inc["id"])
+                self.note("incident_cost", "ok", f"Incident {inc['id']} final service loss (10 h after resolution): ATHENA {inc['cost']['live']:,} | no response {inc['cost']['none']:,} | isolate-everything {inc['cost']['iso']:,} household-hour equivalents.", incident=inc["id"])
         if m % 30 == 0:
             self.bb.append("telemetry_digest", dict(p=round(self.last_p, 3), served=L.services()["served_frac"]), m)
 
@@ -270,10 +329,15 @@ class Runtime:
     def _incident_logic(self, obs, m):
         p = obs["p"]
         open_inc = next((i for i in self.incidents if i["status"] in ("open", "contained")), None)
+        shown = self._heartbeat()["shown"]
         if p > 0.85:
-            self.hi += 1; self.lo = 0
+            self.hi += 1
         else:
-            self.hi = 0; self.lo += 1
+            self.hi = 0
+        if shown > 0.85:
+            self.lo = 0
+        else:
+            self.lo += 1
         if open_inc is None and self.hi >= 2:
             open_inc = self._new_incident(obs, m)
         if open_inc is not None:
@@ -345,7 +409,7 @@ class Runtime:
         for pr in self.proposals:
             if pr["incident"] == inc["id"] and pr["status"] == "pending":
                 pr["status"] = "expired"
-        self.note("incident_resolved", "ok", f"Incident {inc['id']} resolved. The final service-loss comparison (DECOY vs no response vs isolate-everything) follows once the counterfactual outages play out.", incident=inc["id"])
+        self.note("incident_resolved", "ok", f"Incident {inc['id']} resolved. The final service-loss comparison (ATHENA vs no response vs isolate-everything) follows once the counterfactual outages play out.", incident=inc["id"])
         inc["cost_due"] = m + 600
         if self.defence.quarantined or self.live.local_mode:
             released = sorted(self.defence.quarantined)
@@ -392,7 +456,8 @@ class Runtime:
         inc["stages"].append(dict(stage="Predicted route", minute=self.live.minute))
         iso = dec["isolate_all"]
         pid = f"P{len(self.proposals)+1:03d}"
-        steps = [dict(kind=s["kind"], label=s["label"], service=round(s["service"]), ops=round(s["ops"]), J=round(s["J"]), safety=s.get("safety"), raw=s) for s in dec["steps"]]
+        steps = [dict(kind=s["kind"], label=s["label"], service=round(s["service"]), ops=round(s["ops"]), J=round(s["J"]), safety=s.get("safety"),
+                      target=dict(node=s.get("node"), nodes=s.get("nodes"), edge=s.get("edge")), raw=s) for s in dec["steps"]]
         prop = dict(id=pid, incident=inc["id"], minute=self.live.minute, status="pending", steps=[{k: v for k, v in s.items() if k != "raw"} for s in steps],
                     observe_J=round(dec["observe"]["J"]), plan_J=round(dec["plan_J"]), isolate_all_J=round(iso["J"]), isolate_all_service=round(iso["service"]),
                     table=[dict(label=r["label"], J=round(r["J"]), remaining=round(r["remaining"]), service=round(r["service"]), ops=round(r["ops"])) for r in (dec["table"] or [])],
@@ -471,7 +536,8 @@ class Runtime:
                 if raw["target"] in tg:
                     del self.live.spoof[tg]
         if inc is not None:
-            inc["actions"].append(dict(minute=self.live.minute, kind=k, label=raw["label"], actor=actor, service=round(raw.get("service", 0)), safety=raw.get("safety", {}).get("note")))
+            inc["actions"].append(dict(minute=self.live.minute, kind=k, label=raw["label"], actor=actor, service=round(raw.get("service", 0)), safety=raw.get("safety", {}).get("note"),
+                                       target=dict(node=raw.get("node"), nodes=raw.get("nodes"), edge=raw.get("edge"))))
         self.note("heal_action", "ok", f"{actor}: {raw['label']}", incident=inc["id"] if inc else None)
 
     def _verify(self, m):
@@ -615,7 +681,9 @@ class Runtime:
                     self.live.spoof.clear()
                 if k in ("quar", "close", "vp", "creds") and not any(s["stage"] == "Cut made" for s in inc["stages"]):
                     inc["stages"].append(dict(stage="Cut made", minute=m))
-                inc["actions"].append(dict(minute=m, kind=k, label=entry["action"], actor="ppo-responder", service=0, safety="Safety Check shield: action was masked unless safe"))
+                x = core.actions[a][1] if len(core.actions[a]) > 1 else None
+                inc["actions"].append(dict(minute=m, kind=k, label=entry["action"], actor="ppo-responder", service=0, safety="Safety Check shield: action was masked unless safe",
+                                           target=dict(node=x if k in ("quar", "vp", "creds") else None, nodes=None, edge=x if k == "close" else None)))
                 self.note("heal_action", "ok", f"PPO responder: {entry['action']}", incident=inc["id"])
                 self.dirty = True
             else:
@@ -635,8 +703,10 @@ class Runtime:
     def apply_fix(self, fid, actor="operator"):
         with self.lock:
             f = self.planner.by_id.get(fid)
-            if not f or fid in self.defence.fixes:
-                return False
+            if not f:
+                raise ValueError("This fix is not in the plan.")
+            if fid in self.defence.fixes:
+                raise ValueError("Already done: this fix is already in place.")
             f.apply(self.defence)
             self.defence.fixes.append(fid)
             self.note("fix_applied", "ok", f"{actor} applied fix: {f.label}", fix=fid)
@@ -759,7 +829,8 @@ class Runtime:
                              live_hh=round(L.lost["hh_h"]), none_hh=round(self.none.lost["hh_h"]), iso_hh=round(self.iso.lost["hh_h"]),
                              none_served=self.none.services()["served_frac"], iso_served=self.iso.services()["served_frac"],
                              none_levels=dict(self.none.level), iso_levels=dict(self.iso.level), none_hosp=self.none.services()["hospitals"], iso_hosp=self.iso.services()["hospitals"]),
-                watch=dict(p=round(self.last_p, 3), ae=self.last_obs.get("ae"), zmax=self.last_obs.get("zmax"), novelty=self.last_obs.get("novelty"), phys_z=self.last_obs.get("phys_z"),
+                stopped=self.stopped, paused=self.paused,
+                watch=dict(**self._heartbeat(), p=round(self.last_p, 3), ae=self.last_obs.get("ae"), zmax=self.last_obs.get("zmax"), novelty=self.last_obs.get("novelty"), phys_z=self.last_obs.get("phys_z"),
                            violations=[dict(rule=v["rule"], text=v["text"], node=v["node"]) for v in self.last_obs.get("violations", [])][:4],
                            evidence=self.last_obs.get("evidence", [])[:3], drift_events=self.watchdog.drift_events),
                 nodes=nodes,

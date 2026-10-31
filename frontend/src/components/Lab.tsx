@@ -1,11 +1,13 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { setState, toast, useStore } from "../store";
 import { C, riskColor } from "../palette";
-import { Bars, k, RiskTrio } from "./Charts";
-import { Box, Ic, PageHead, Stat } from "./ui";
-import { brief, can, nameOf } from "./status";
+import { Bars, Heartbeat, k, RiskTrio } from "./Charts";
+import { Box, Ic, Move, PageHead, Stat } from "./ui";
+import { brief, can, nameOf, plainMove } from "./status";
 import { setPath } from "./Views";
+import { pickNode, showControls } from "../focus";
+import { scene } from "../scene/ref";
 
 const cut = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s);
 const V2 = "/api/v2";
@@ -22,17 +24,65 @@ function Kinds({ c }: { c: any }) {
 }
 
 function Recs({ recs, onApplied }: { recs: any[]; onApplied: () => void }) {
-  const role = useStore((s) => s.role);
+  const role = useStore((s) => s.role), st = useStore((s) => s.st);
   const apply = (r: any) => api(V2 + "/mitigations/apply", { body: { controls: r.apply } }).then(() => { toast("ok", "Applied in the simulation only"); onApplied(); });
   return (
     <div className="col">
       {recs.slice(0, 5).map((r, i) => (
-        <div key={i} className="list-row" style={{ cursor: "default", alignItems: "flex-start" }}>
+        <div key={i} className="list-row" style={{ alignItems: "flex-start" }} onClick={() => showControls(st, r.apply)}>
           <span className="num-chip aqua">{i + 1}</span>
-          <div className="grow"><div style={{ fontSize: 13, fontWeight: 700 }}>{cut(r.label, 70)}</div>
+          <div className="grow"><Move label={r.label} detail={<>Effort {r.cost} · reaches {r.reached_before} → {r.reached_after} assets{r.still_reachable?.length ? " · still reachable: " + r.still_reachable.slice(0, 5).join(", ") : ""}</>} />
             <div className="dim" style={{ fontSize: 11.5 }}>reaches {r.reached_before} → {r.reached_after} assets · {r.eliminates_all_paths ? "closes every path" : r.reduction > 0 ? "other paths stay open" : "no effect alone"} · effort {r.cost}</div></div>
-          {can(role, "analyst") && <button className="btn small heal" onClick={() => apply(r)}>Try it</button>}
+          {can(role, "analyst") && <button className="btn small heal" onClick={(e) => { e.stopPropagation(); showControls(st, r.apply); apply(r); }}>Try it</button>}
         </div>))}
+    </div>
+  );
+}
+
+
+/** Replays a simulated spread on the map, one step at a time, while a "risk heartbeat" climbs and then falls once the best fix is applied.
+ *  The map shows only the devices reached so far; the line below is the ward risk index (baseline = 100). */
+function SpreadReplay({ r, st }: { r: any; st: any }) {
+  const order: string[] = useMemo(() => r.compromised || [], [r]); const n = order.length;
+  const risk = r.risk_before !== undefined ? { before: r.risk_before, during: r.risk_during, after: r.package?.risk_after ?? r.risk_before } : r.risk ? { before: r.risk.before, during: r.risk.during, after: r.risk.after_package } : null;
+  const [i, setI] = useState(1); const [play, setPlay] = useState(true);
+  useEffect(() => { setI(1); setPlay(true); }, [r]);
+  useEffect(() => { if (!play) return; const t = setInterval(() => setI((x) => { if (x >= n + 3) { setPlay(false); return x; } return x + 1; }), 650); return () => clearInterval(t); }, [play, n]);
+  const shown = Math.min(i, n); const fixed = i > n;
+  useEffect(() => {
+    const nodes = order.slice(0, shown); const segs: string[][] = []; const edges: string[] = [];
+    nodes.forEach((v) => { const eid = r.paths?.[v]?.[r.paths[v].length - 1]; const e = eid && st.edges.find((x: any) => x.id === eid); if (e) { segs.push([e.source, e.target]); edges.push(e.id); } });
+    const blast: Record<string, number> = {}; nodes.forEach((v, j) => { if (j > 0) blast[v] = Math.max(0.25, 1 - (0.7 * j) / Math.max(1, n)); });
+    setState({ selected: null, pathSel: null, labNodes: [], focus: nodes.length > 1 ? { key: `lab:${r.id || r.start}:${shown}:${fixed}`, kind: fixed ? "defence" : "attack", segs, edges, marks: nodes, blast: fixed ? {} : blast } : null });
+    if (shown === Math.min(n, 3) || shown === n) scene.current?.frameNodes(nodes.length > 1 ? nodes : [order[0]]);
+  }, [shown, fixed, r]);
+  useEffect(() => () => setState({ focus: null }), []);
+  if (!risk || n < 2) return <div className="tip">Nothing else can be reached from here, so there is no spread to replay.</div>;
+  const wt = (id: string) => ({ field: 3, control: 2 } as any)[st.assets[id]?.layer] || 1; const tot = order.slice(1).reduce((a, v) => a + wt(v), 0) || 1; const mx = Math.max(risk.during, risk.before, risk.after) * 1.05 || 1;
+  const pts: number[] = Array(5).fill(risk.before); let cum = 0; order.slice(1, shown).forEach((v) => { cum += wt(v); pts.push(risk.before + ((risk.during - risk.before) * cum) / tot); });
+  if (fixed) { const last = pts[pts.length - 1]; for (let q = 1; q <= 4; q++) pts.push(last + ((risk.after - last) * q) / 4); }
+  const cur = pts[pts.length - 1]; const name = order[Math.min(shown, n) - 1];
+  return (
+    <div className="replay">
+      <div className="row between"><b style={{ fontSize: 12.5 }}>{fixed ? "After the best fix" : shown === 1 ? "Attacker holds the start device" : `Step ${shown - 1} of ${n - 1}: ${brief(st.assets[name]?.name || name)}`}</b>
+        <div className="row" style={{ gap: 4 }}><button className="btn small" onClick={() => { if (i > n + 2) setI(1); setPlay(!play || i > n + 2); }}>{play ? "Pause" : i > n + 2 ? "Replay" : "Play"}</button></div></div>
+      <input type="range" min={1} max={n + 3} value={i} onChange={(e) => { setI(+e.target.value); setPlay(false); }} aria-label="Replay step" />
+      <Heartbeat data={pts} h={54} max={mx} color={fixed ? C.aquaD : cur > risk.before * 1.4 ? C.terra : C.apricot} thr={risk.before} marks={fixed ? [{ i: pts.length - 5, label: "Best fix applied" }] : []} />
+      <div className="row between" style={{ fontSize: 11.5 }}><span className="dim">risk index, baseline = 100 (steps weighted by closeness to equipment)</span><b style={{ color: fixed ? C.aquaD : C.terra }}>{cur.toFixed(0)}</b></div>
+    </div>
+  );
+}
+
+/** Proof that the ranking model agrees with the simulation: how many of the devices it called riskiest really fall in this simulated attack. */
+function Proof({ r }: { r: any }) {
+  const top: any[] = r.classification?.predicted_top_risk || []; const fell = new Set<string>(r.compromised || []); const hit = top.filter((x) => fell.has(x.id)).length;
+  const red = r.risk ? (r.risk.during - r.risk.after_package) / Math.max(1, r.risk.during - r.risk.before) : r.risk_during !== undefined ? (r.risk_during - (r.package?.risk_after ?? r.risk_before)) / Math.max(1, r.risk_during - r.risk_before) : null;
+  const reached0 = (r.compromised?.length || 1) - 1, after = r.package?.still_reachable?.length ?? r.package?.reached_after?.length;
+  return (
+    <div className="grid3">
+      <Stat v={top.length ? `${hit} of ${top.length}` : "–"} l="devices the model called riskiest that really fell here" color={C.aquaD} />
+      <Stat v={after !== undefined ? `${reached0} → ${after}` : `${reached0}`} l="devices reachable: before → with best fix" color={after === 0 ? C.aquaD : C.apricot} />
+      <Stat v={red !== null && isFinite(red) ? `${Math.round(Math.min(1, Math.max(0, red)) * 100)}%` : "–"} l="of the risk jump removed by the fix" color={C.aquaD} />
     </div>
   );
 }
@@ -41,13 +91,16 @@ function SimResult({ r, st, onApplied }: { r: any; st: any; onApplied: () => voi
   const names = (ids: string[]) => ids.map((i) => nameOf(st, i));
   return (
     <>
-      <Kinds c={r.classification} />
+      <div className="grid3"><Stat v={Math.max(0, r.compromised.length - 1)} l="devices it can reach" color={r.compromised.length > 1 ? C.terra : C.aquaD} /><Stat v={r.services_lost.length} l="services it can stop" color={r.services_lost.length ? C.terra : C.aquaD} /><Stat v={r.risk_before !== undefined ? `${r.risk_before.toFixed(0)} → ${r.risk_during.toFixed(0)}` : "–"} l="ward risk index" color={C.apricot} /></div>
+      <SpreadReplay r={r} st={st} />
+      <Proof r={r} />
+      <details><summary className="tip" style={{ cursor: "pointer" }}>Plausible, predicted and confirmed</summary><Kinds c={r.classification} /></details>
       {r.risk_before !== undefined && <RiskTrio unit="Ward risk index (untouched baseline = 100)" rows={[{ label: "Before", sub: "baseline", value: r.risk_before, color: C.aquaD }, { label: "During", sub: "if this happens", value: r.risk_during, color: C.terra }, { label: "After", sub: "with the best package", value: r.package?.risk_after ?? r.risk_before, color: C.apricot }]} />}
       <div className="tip"><b>Could also reach:</b> {r.compromised.length > 1 ? names(r.compromised.slice(1)).slice(0, 8).join(", ") + (r.compromised.length > 9 ? "…" : "") : "nothing else (every next step fails a precondition)"}</div>
       {r.services_lost.length > 0 && <div className="row wrap">{r.services_lost.slice(0, 6).map((s: string) => <span key={s} className="pill crit">{cut(s, 28)}</span>)}</div>}
       {r.failed?.length > 0 && <details><summary className="tip" style={{ cursor: "pointer" }}>Steps that fail ({r.failed.length})</summary>{r.failed.slice(0, 5).map((f: any, i: number) => <div key={i} className="tip">✗ {nameOf(st, f.source)} → {nameOf(st, f.target)}: {f.reasons[0]}</div>)}</details>}
       {r.recommendations?.length > 0 && <><b style={{ fontSize: 12.5 }}>What to do about it</b><Recs recs={r.recommendations} onApplied={onApplied} /></>}
-      {r.package && <div className="tip">Best package: <b>{r.package.controls.length ? r.package.controls.map((c: string) => cut(c, 40)).join(" + ") : "none helps"}</b>. {r.package.reached_after.length === 0 ? "Closes every path." : `${r.package.reached_after.length} asset(s) stay reachable.`}</div>}
+      {r.package && <div className="tip">Best package: <b>{r.package.controls.length ? r.package.controls.map((c: string) => plainMove(c).title).join(" + ") : "none helps"}</b>. {r.package.reached_after.length === 0 ? "Closes every path." : `${r.package.reached_after.length} asset(s) stay reachable.`}</div>}
     </>
   );
 }
@@ -58,14 +111,10 @@ export function LabView() {
   const [res, setRes] = useState<any>(null); const [scn, setScn] = useState<any[]>([]); const [run, setRun] = useState<any>(null); const [risk, setRisk] = useState<any>(null);
   const [expl, setExpl] = useState<any>(null); const [cmp, setCmp] = useState<any>(null); const [busy, setBusy] = useState("");
   const ids = useMemo(() => Object.values<any>(st.assets).filter((a) => a.id !== "INTERNET"), [st]);
-  const load = () => { api(V2 + "/model").then(setModel).catch(() => {}); api(V2 + "/risk").then(setRisk).catch(() => setRisk(null)); api(V2 + "/scenarios").then((r) => setScn(r.scenarios)).catch(() => {}); };
+  const load = () => { api(V2 + "/model").then((m) => { setModel(m); if (m.state?.status === "ready") api(V2 + "/risk").then(setRisk).catch(() => setRisk(null)); }).catch(() => {}); api(V2 + "/scenarios").then((r) => setScn(r.scenarios)).catch(() => {}); };   // risk is only requested once the model has finished training
   useEffect(() => { load(); const t = setInterval(() => { if (!risk) load(); }, 3000); return () => clearInterval(t); }, [!!risk]);
   useEffect(() => { if (labStart) { setStart(labStart); setState({ labStart: null }); } else if (sel && st.assets[sel]) setStart(sel); }, [sel, labStart]);
-  const show = (r: any) => {   // draw the most damaging plausible path on the map and dim everything else
-    const comp: string[] = r.compromised || []; setState({ labNodes: comp });
-    const ctrl = Object.values<any>(st.actions).map((a) => a.controller).filter((c) => comp.includes(c) && r.paths?.[c]).sort((a, b) => (r.paths[b].length - r.paths[a].length))[0];
-    if (ctrl) { const edges: string[] = r.paths[ctrl]; const nodes = [r.start || start]; for (const eid of edges) { const e = st.edges.find((x: any) => x.id === eid); nodes.push(e ? e.target : eid); } setPath(st, nodes, edges, "attack"); } else setState({ pathSel: null });
-  };
+  const show = (_r: any) => { setState({ labNodes: [] }); };   // the replay below draws the spread on the map
   const simulate = () => { setBusy("sim"); setRun(null); api(V2 + "/simulate/compromise", { body: { start, credentials: creds && start === "VPN_VENDOR" ? [start] : [] } }).then((r) => { setRes(r); show(r); }).finally(() => setBusy("")); };
   const runScn = (id: string) => { setBusy(id); setRes(null); api(V2 + `/scenarios/${id}/run`, { method: "POST", body: {} }).then((r) => { setRun(r); show(r); }).finally(() => setBusy("")); };
   const compare = () => api(V2 + "/compare" + (res ? `?start=${res.start}` : "")).then(setCmp);
@@ -76,11 +125,11 @@ export function LabView() {
   return (
     <>
       <PageHead icon="target" title="What-if" sub="Pick a device, press Simulate" right={<span className={"pill " + (ready ? "safe" : "watch")}>{ready ? "model ready" : model?.state?.status || "loading"}</span>} />
-      <Box id="sim" title="Simulate a compromise" icon="mask" value="plausible paths" defaultOpen>
+      <Box id="sim" title="Simulate a compromise" icon="mask" value={res ? `${Math.max(0, res.compromised.length - 1)} reached` : "pick a device"} defaultOpen>
         <select value={start} onChange={(e) => { setStart(e.target.value); setRes(null); }} aria-label="Start device">{ids.map((a: any) => <option key={a.id} value={a.id}>{brief(a.name)}</option>)}</select>
         {start === "VPN_VENDOR" && <label className="row" style={{ fontSize: 12.5 }}><input type="checkbox" checked={creds} onChange={(e) => setCreds(e.target.checked)} /> attacker holds a vendor credential (synthetic)</label>}
         <button className="btn primary big" disabled={!can(role, "analyst") || !ready || busy === "sim"} onClick={simulate}>{busy === "sim" ? "Simulating…" : "Simulate compromise"}</button>
-        <div className="tip">A link alone never means compromise. Each step needs a reason: a vulnerable service, weak access, or a stolen credential.</div>
+        <div className="tip">Press the button: the attacker takes this device, then the map replays each step it can really make (every step needs a reason: a weakness, weak access or a stolen login). The line below it is the ward risk climbing.</div>
         {res && <SimResult r={res} st={st} onApplied={() => { compare(); simulate(); }} />}
       </Box>
       <Box id="scn" title="Five scenarios" icon="bolt" value="synthetic" defaultOpen>
@@ -89,14 +138,17 @@ export function LabView() {
       </Box>
       {run && (
         <Box id="scnres" title={run.title} icon="eye" value={`${run.timeline.length} events`} kind="warm" defaultOpen>
-          <Kinds c={run.classification} />
+          <SpreadReplay r={run} st={st} />
+          <Proof r={run} />
+          <details><summary className="tip" style={{ cursor: "pointer" }}>Plausible, predicted and confirmed</summary><Kinds c={run.classification} /></details>
           <RiskTrio unit="Ward risk index (untouched baseline = 100)" rows={[{ label: "Before", sub: "baseline", value: run.risk.before, color: C.aquaD }, { label: "During", sub: "scenario", value: run.risk.during, color: C.terra }, { label: "After", sub: "best package", value: run.risk.after_package, color: C.apricot }]} />
           <b style={{ fontSize: 12.5 }}>What we learn</b>{run.insights.map((t: string, i: number) => <div key={i} className="tip">• {t}</div>)}
           <details><summary className="tip" style={{ cursor: "pointer" }}>Assumptions and starting state</summary>{run.assumptions.map((t: string, i: number) => <div key={i} className="tip">• {t}</div>)}<div className="tip mono">{cut(JSON.stringify(run.initial_state), 160)}</div></details>
           <details><summary className="tip" style={{ cursor: "pointer" }}>Event timeline (generated)</summary>{run.timeline.slice(0, 12).map((e: any, i: number) => <div key={i} className="row" style={{ fontSize: 12, alignItems: "flex-start" }}><span className="pill info mono">+{e.t}m</span><span>{cut(e.text.replace("Synthetic: ", ""), 100)}</span></div>)}</details>
           <b style={{ fontSize: 12.5 }}>What to do about it</b><Recs recs={run.recommendations} onApplied={compare} />
-          {run.package && <div className="tip">Best package: <b>{run.package.controls.map((c: string) => cut(c, 36)).join(" + ") || "none helps"}</b>. {run.package.closes_every_path ? "Closes every path." : `${run.package.still_reachable.length} asset(s) stay reachable.`}</div>}
+          {run.package && <div className="tip">Best package: <b>{run.package.controls.map((c: string) => plainMove(c).title).join(" + ") || "none helps"}</b>. {run.package.closes_every_path ? "Closes every path." : `${run.package.still_reachable.length} asset(s) stay reachable.`}</div>}
         </Box>)}
+      {/* Before and after your changes: switched off for now, to be revisited.
       <Box key={cmp ? "c1" : "c0"} id={cmp ? "cmp1" : "cmp0"} defaultOpen={!!cmp} title="Before and after your changes" icon="swap" value={cmp ? `${cmp.ward_risk_before.toFixed(0)} → ${cmp.ward_risk_after.toFixed(0)}` : "try a fix"} tone={cmp && cmp.ward_risk_after < cmp.ward_risk_before ? "safe" : "info"}>
         <div className="row"><button className="btn small primary" disabled={!ready} onClick={compare}>Compare</button><button className="btn small" onClick={reset}>Reset simulation</button></div>
         {cmp && <>
@@ -106,10 +158,11 @@ export function LabView() {
         </>}
         <div className="dim" style={{ fontSize: 11.5 }}>Simulation only. The live twin and the baseline are untouched.</div>
       </Box>
+      */}
       <Box id="rank" title="Why this priority?" icon="chart" value={rows[0] ? `#1 ${cut(brief(rows[0].name), 14)}` : "…"}>
         <div className="tip">Risk = likelihood × impact. A moderate-CVSS device that reaches many services can outrank a critical-CVSS one that reaches little.</div>
         {rows.slice(0, 8).map((r: any) => (
-          <div key={r.id} className="list-row" onClick={() => explain(r.id)}>
+          <div key={r.id} className="list-row" onClick={() => { explain(r.id); pickNode(st, r.id); }}>
             <span className="num-chip">{r.rank}</span>
             <div className="grow"><div className="row between" style={{ fontSize: 13 }}><b>{cut(brief(r.name), 22)}</b><span className="dim">CVSS #{r.rank_by_cvss}</span></div>
               <div className="bar" style={{ marginTop: 4 }}><div style={{ width: `${r.risk}%`, background: riskColor(r.risk / 100) }} /></div></div>

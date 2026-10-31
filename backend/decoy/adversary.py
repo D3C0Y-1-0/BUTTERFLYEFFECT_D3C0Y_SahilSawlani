@@ -16,7 +16,7 @@ MODES = {
     "zero_day": "Unknown exploit (no CVE signature)",
     "spoof": "Controller takeover with telemetry spoofing",
     "wear": "Breaker wear attack (rapid cycling)",
-    "insider": "Insider with vendor credentials",
+    "insider": "Insider already inside the network (stolen login)",
 }
 
 
@@ -112,14 +112,22 @@ class Adversary:
     # ------------------------------------------------------------------ API
     def launch(self, minute, mode="standard", entry=None, goal=None, stealth=None, weights=None, zd=None):
         entries = [n for n, a in self.assets.items() if a["entry_weight"] > 0]
-        if entry is None:
-            w = np.array([self.assets[n]["entry_weight"] for n in entries])
+        recent = getattr(self, "_recent_entries", [])
+        if entry is None and mode == "insider":    # someone already inside: starts on an internal office / DMZ / control machine
+            inside = [n for n, a in self.assets.items() if a["layer"] in ("it", "dmz", "control") and a["exposure"] != "internet"]
+            entry = str(self.rng.choice(inside))
+        elif entry is None:
+            w = np.array([self.assets[n]["entry_weight"] for n in entries]) ** 0.5     # flatten: a popular door is likelier, not dominant
+            w = w * np.array([0.35 if n in recent[-2:] else 1.0 for n in entries])      # and avoid repeating the last two entry points
             entry = str(self.rng.choice(entries, p=w / w.sum()))
+        self._recent_entries = (recent + [entry])[-6:]
         if goal is None:
             goals = list(self.goals.keys())
             goal = str(self.rng.choice(goals, p=weights)) if weights is not None else str(self.rng.choice(goals))
         st = float(stealth) if stealth is not None else float(self.rng.uniform(2.0, 9.0))
         c = Campaign(entry, goal, mode, st, minute)
+        if self.assets[entry]["exposure"] != "internet" and mode == "insider":
+            c.compromised.append(entry)      # the insider already holds this machine: no internet hop is needed
         if zd is None and mode == "zero_day":
             zd = random_zero_day(self.ward, self.rng, minute=minute)
         c.zd = zd

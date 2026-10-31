@@ -17,8 +17,17 @@ export async function api(path: string, opts: { method?: string; body?: any } = 
   }
   if (r.status === 401 && token && !path.startsWith("/api/auth")) { logout(); throw new Error("Session expired, please sign in again"); }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) { const msg = plain(j, r.status); if (!path.startsWith("/api/auth")) toast("warn", msg); throw new Error(msg); }
+  if (!r.ok) { const msg = plain(j, r.status); if (!path.startsWith("/api/auth")) toast(r.status === 409 ? "ok" : "warn", msg); throw new Error(msg); }
+  if ((opts.method || (opts.body ? "POST" : "GET")) === "POST") noteAction(path, opts.body);
   return j;
+}
+
+/** Every action the person takes leaves a mark on the heartbeat, so its effect can be read straight off the line. */
+const ACTIONS: [RegExp, string][] = [[/^\/api\/fix$/, "Fix applied"], [/^\/api\/decoy$/, "Decoy placed"], [/^\/api\/attack$/, "Attack launched"], [/^\/api\/zeroday$/, "Zero-day launched"], [/^\/api\/freeze$/, "Emergency stop"], [/^\/api\/resume$/, "Resumed"],
+  [/approve$/, "Plan approved"], [/reject$/, "Plan rejected"], [/^\/api\/autonomy$/, "Defence mode changed"], [/mitigations\/apply$/, "Simulated control applied"], [/^\/api\/answer$/, "Answer given"], [/^\/api\/autopilot$/, "Autopilot changed"], [/simulate\/compromise$/, "Simulated compromise"], [/scenarios\/[^/]+\/run$/, "Scenario run"]];
+function noteAction(path: string, _body: any) {
+  const hit = ACTIONS.find(([re]) => re.test(path)); if (!hit) return; const s = getState();
+  setState({ marks: [...s.marks, { t: s.snap?.t ?? 0, label: hit[1], wall: Date.now(), before: s.ana?.summary?.sar99 }].slice(-14) });
 }
 
 export function logout() {
@@ -44,7 +53,7 @@ function connect() {
   const flush = () => {   // the server may send 8 frames a second; the interface updates 3 times a second, which keeps it light
     timer = null; if (!pending) return; const snap = pending; pending = null;
     const s = getState(); const hist = s.hist.length > 360 ? s.hist.slice(-300) : s.hist; const last = hist[hist.length - 1];
-    const item = { t: snap.t, p: snap.watch.p, live: snap.services.served_frac, none: snap.compare.none_served, iso: snap.compare.iso_served };
+    const item = { t: snap.t, p: snap.watch.shown ?? snap.watch.p, live: snap.services.served_frac, none: snap.compare.none_served, iso: snap.compare.iso_served };
     setState({ snap, hist: last && last.t === snap.t ? hist : [...hist, item] });
   };
   ws.onopen = () => { retry = 0; setState({ connected: true }); };
@@ -58,7 +67,7 @@ function connect() {
 
 export function pollAnalytics() {
   clearInterval(anaTimer);
-  const f = async () => { if (document.hidden) return; try { const a = await api("/api/risk"); if (a && a.version && a.version !== getState().ana?.version) setState({ ana: a }); } catch {} };
+  const f = async () => { if (document.hidden) return; try { const a = await api("/api/risk"); if (a && a.version && a.version !== getState().ana?.version) { const ms = getState().marks; const m = ms[ms.length - 1]; setState({ ana: a, marks: m && m.after === undefined && m.before !== undefined && Date.now() - m.wall < 40000 ? [...ms.slice(0, -1), { ...m, after: a.summary?.sar99 }] : ms }); } } catch {} };
   f(); anaTimer = setInterval(f, 5000);
 }
 

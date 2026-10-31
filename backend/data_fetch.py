@@ -1,4 +1,4 @@
-"""Fetch REAL public data used by DECOY and store dated snapshots in ../data.
+"""Fetch REAL public data used by ATHENA and store dated snapshots in ../data.
 
 Sources (all public, no keys):
   - CISA KEV   : known exploited vulnerabilities (already downloaded as data/kev.json)

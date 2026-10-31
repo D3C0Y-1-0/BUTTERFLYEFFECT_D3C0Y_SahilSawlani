@@ -198,7 +198,7 @@ class ThreatModel:
             out[n] = dict(raw=float(hacked - e0), rrw=float(e0 - prot))
         return e0, out
 
-    def top_paths(self, defence=None, k=5):
+    def top_paths(self, defence=None, k=8):
         """Most damaging attack routes: aggregate sampled parent chains weighted by service loss."""
         ev = self.evaluate(defence, track=True)
         L, reached, parent = ev["L"], ev["reached"], ev["parent"]
@@ -217,7 +217,14 @@ class ThreatModel:
                     path = tuple(reversed(path))
                     agg[path] = agg.get(path, 0.0) + float(L[s]) / self.S
                     break
-        top = sorted(agg.items(), key=lambda kv: -kv[1])[:k]
+        ranked = sorted(agg.items(), key=lambda kv: -kv[1])
+        top, seen = [], set()
+        for path, w in ranked:            # first the worst route from each different entry point, so one popular door (the vendor VPN) cannot fill the list
+            ent = self.edges[path[0]]["target"] if self.edges[path[0]]["source"] == "INTERNET" else self.edges[path[0]]["source"]
+            if ent not in seen:
+                seen.add(ent); top.append((path, w))
+        top += [kv for kv in ranked if kv not in top]
+        top = top[:k]
         out = []
         for path, w in top:
             nodes = [self.edges[path[0]]["source"]] + [self.edges[e]["target"] for e in path]

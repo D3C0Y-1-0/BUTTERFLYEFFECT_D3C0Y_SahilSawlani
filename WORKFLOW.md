@@ -1,4 +1,4 @@
-# DECOY — Workflow Guide
+# ATHENA — Workflow Guide
 **How every feature works, and exactly how to show it.** Companion to [PLAN.md](PLAN.md). Written for the team and for explaining to judges.
 
 ---
@@ -11,7 +11,7 @@
 5. The city keeps running by itself: the **Autopilot adversary** attacks every ~2–4 simulated hours. Use **Defend → Attack console** to attack on demand (modes: standard, zero-day, spoof, wear, insider).
 6. Roles: `executive` reads · `analyst` also attacks/what-ifs · `operator` also approves and applies fixes · `admin` also enables full autonomy, resets, tamper and chaos demos.
 
-**What you will see during a live attack:** the heartbeat strip spikes → an incident opens with the CERT-In 6-hour ring → *Where will it go next?* bars → a proposal (or an automatic action if safe) → the surgery panel shows households served staying at ~100 % for DECOY while the *no response* and *isolate everything* lines drop → incident verified → isolation lifted; patches stay.
+**What you will see during a live attack:** the heartbeat strip spikes → an incident opens with the CERT-In 6-hour ring → *Where will it go next?* bars → a proposal (or an automatic action if safe) → the surgery panel shows households served staying at ~100 % for ATHENA while the *no response* and *isolate everything* lines drop → incident verified → isolation lifted; patches stay.
 
 ---
 
@@ -145,7 +145,7 @@ Format for each: **What / Inside / Show it / Say it / Proof**.
 - **What:** the system *introduces* zero-days (exploits for a product no CVE/EPSS/signature covers), then handles them: detect → suspect → fingerprint → capture and analyse a sample → deploy a **family rule** to every device of that product → remember it in the library.
 - **Inside:** `zeroday.py` (lab, library), `rl.py` (pipeline + policy), `runtime.py` (`introduce_zero_day`, `_zd_pipeline`). A classic virtual patch stops only 30% of zero-day attempts; the family rule stops 85%.
 - **Show it:** rail → **Zero-day** → pick a product marked *unseen in training* → **Introduce zero-day**. Watch the stage tracker (Introduced → Suspected → Family rule → Contained), the extracted fingerprint chips, the library table. Introduce the *same product again*: the rule is already deployed.
-- **Say it:** "Nobody told DECOY which product was exploited. It saw behaviour, not a signature, and protected the whole product family."
+- **Say it:** "Nobody told ATHENA which product was exploited. It saw behaviour, not a signature, and protected the whole product family."
 - **Proof:** E16 (repeat encounter cheaper, paired 95% CI excludes 0), E10 (unseen attack types detected).
 
 ### F17 — PPO responder (reinforcement learning)
@@ -248,7 +248,7 @@ Format for each: **What / Inside / Show it / Say it / Proof**.
 | City | Is the ward safe right now? | Service ring, 3/3 hospitals, weakest points (tap one: camera flies to it, passport opens) |
 | Paths | How could a hacker reach water or power? | Tap a route: thick numbered path on the map; drag the start hour: hospital pressure line |
 | Fix | What to fix first? | Before / now / after bars; preview a fix; "Missing facts" box = Ask-First |
-| Defend | Watch DECOY stop an attack | Launch attack: status turns Under attack -> Healing -> Recovered; map shows shield, beam, rings; "Service kept" lines |
+| Defend | Watch ATHENA stop an attack | Launch attack: status turns Under attack -> Healing -> Recovered; map shows shield, beam, rings; "Service kept" lines |
 | Zero-day | An attack nobody has seen before | Launch zero-day: 4-step tracker, fingerprint chips, library, "Who responds?" |
 | Proof | Does it really work? | Slope chart, then tests with met/missed pills |
 | Safety | CERT-In and our own security | 6-hour clock, Log Vault, tamper demo |
@@ -272,3 +272,27 @@ If the heartbeat stays high after an attack: the pump or breaker stays off until
 | 7 | **Reset simulation** | "The baseline was never modified." |
 Tap any device on the map, then **Simulate** in its panel, to start from it.
 Run the tests: `.\.venv\Scripts\python -m pytest backend\tests -q` (51 tests, about 50 s).
+
+
+## Map highlights and locked districts (new)
+* Every button or row in the side panel that refers to a path, link or device now highlights it on the map with the same thick route style, and the camera frames it: City weakest points, Paths routes, Fix plan rows and previews, Missing facts, Defend (proposal steps, "What ATHENA did", predicted next hop), What-if recommendations and ranking, Zero-day library, device-panel links, and clicking a device on the map.
+* Terracotta = attacker route (numbered), apricot = predicted next hop, aqua = a defence (a link to close, devices protected). Press the same item again, click empty map, or change page to clear it.
+* The empty land around the ward is eight hatched, padlocked districts ("Locked · coming soon"). Clicking one shows a short message.
+
+
+## UI v3 demo script (3 minutes)
+1. Open the map. Point at the **green city**, the **icons** and the **BARC / IT hub / tourist sites** on the surrounding land (`4` or the Mumbai button).
+2. Click the **Vendor VPN** icon: the card shows what it is and its **blast radius** (red lines to everything it can reach, including Mumbai sites).
+3. **Predict** page: likely targets, reasons, next steps, and the accuracy panel.
+4. **Defend**: launch a known attack, then an **insider** attack. Watch the incident card (top right) and the bottom timeline; the heartbeat shows **Healing** with a countdown.
+5. Press **■ Stop**: attacks halt; **▶ Resume** restores. 6. **How it works**: play the zero-day story (physics breaks, fingerprint, family rule, second encounter blocked).
+7. **Why us**: measured numbers and what did not work.
+
+
+## Demo additions (round 4)
+1. Overview: sea on the left, real roads and railways, coloured buildings. Press Hospitals / Water plants / Power to zoom in.
+2. Paths: click any device; the "What it would do" box shows people, hours and rupees for that device.
+3. What-if: Simulate compromise. Watch the map replay the spread while the risk heartbeat climbs, then drops after the best fix.
+4. Defend: Launch attack. The status says "Attack running", then the alarm; read the three boxes: the attack, what ATHENA did, how well it worked.
+5. Zero-day: launch one; read how we are stopping it, how well it worked, what the model learned.
+6. How it works and Why us fill the whole page: press an algorithm to read why it was chosen.

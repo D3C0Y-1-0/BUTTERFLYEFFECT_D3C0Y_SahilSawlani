@@ -19,7 +19,7 @@ export function Ring({ value, max = 1, size = 56, stroke = 6, color = C.aquaD, c
 }
 
 /** Heartbeat line: flat = calm, spike = something is wrong. Scales to its container. */
-export function Heartbeat({ data, h = 40, color = C.aquaD, thr, max = 1 }: { data: number[]; h?: number; color?: string; thr?: number; max?: number }) {
+export function Heartbeat({ data, h = 40, color = C.aquaD, thr, max = 1, marks = [] }: { data: number[]; h?: number; color?: string; thr?: number; max?: number; marks?: { i: number; label: string }[] }) {
   const w = 200, n = data.length; if (!n) return <svg width="100%" height={h} />;
   const y = (v: number) => h - 3 - (Math.min(v, max) / max) * (h - 8);
   const pts = data.map((v, i) => `${(i / Math.max(1, n - 1)) * w},${y(v)}`).join(" ");
@@ -30,8 +30,15 @@ export function Heartbeat({ data, h = 40, color = C.aquaD, thr, max = 1 }: { dat
       <polygon points={`0,${h} ${pts} ${w},${h}`} fill={`url(#${gid})`} />
       {thr !== undefined && <line x1="0" x2={w} y1={y(thr)} y2={y(thr)} stroke={C.terra} strokeDasharray="4 4" strokeOpacity=".6" vectorEffect="non-scaling-stroke" />}
       <polyline points={pts} fill="none" stroke={color} strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+      {marks.map((m, j) => { const x = (m.i / Math.max(1, n - 1)) * w; return <g key={j}><line x1={x} x2={x} y1={0} y2={h} stroke={C.ink} strokeOpacity=".45" strokeDasharray="2 3" vectorEffect="non-scaling-stroke" /><circle cx={x} cy={y(data[Math.min(n - 1, m.i)] ?? 0)} r="3.2" fill="#fff" stroke={C.ink} strokeWidth="1.6" vectorEffect="non-scaling-stroke"><title>{m.label}</title></circle></g>; })}
     </svg>
   );
+}
+
+/** Where on a history line each action sits (by simulated minute). */
+export function marksOn(hist: { t: number }[], marks: { t: number; label: string }[]) {
+  if (!hist.length) return [];
+  return marks.map((m) => ({ label: m.label, i: hist.findIndex((x) => x.t >= m.t) })).filter((m) => m.i >= 0);
 }
 
 /** Rank-reversal slope chart: CVSS x importance (left) vs service loss (right). */

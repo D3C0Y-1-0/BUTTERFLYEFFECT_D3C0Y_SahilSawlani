@@ -64,7 +64,7 @@ class LabService:
         return self._impact[k]
 
     # ------------------------------------------------------------------ training
-    def build_training_set(self, n_variants=140, seed=11, n_worlds=1500):
+    def build_training_set(self, n_variants=260, seed=11, n_worlds=1500):
         """Rows = (asset, control configuration). Label = share of 'attack worlds' in which the asset falls (Monte-Carlo threat model)."""
         rng = np.random.default_rng(seed)
         ids = [i for i in self.model["assets"] if i != "INTERNET"]
@@ -90,7 +90,7 @@ class LabService:
                 g.append(v)
         return np.array(X), np.array(y), np.array(g)
 
-    def train(self, n_variants=140, seed=11):
+    def train(self, n_variants=260, seed=11):
         with self.lock:
             self.state = dict(status="training", error=None)
         try:

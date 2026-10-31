@@ -29,6 +29,9 @@ const P: Record<string, string> = {
   doc: "M7 3h8l4 4v14H7zM14 3v5h5M10 13h6M10 17h6",
   swap: "M7 7h13l-3-3M17 17H4l3 3",
   sparkle: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z",
+  full: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
+  share: "M12 5.5a1.6 1.6 0 1 0 .01 0M5 18.5a1.6 1.6 0 1 0 .01 0M19 18.5a1.6 1.6 0 1 0 .01 0M12 7.2v4.8M12 12l-6 4.8M12 12l6 4.8",
+  move: "M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3",
 };
 export const Ic = ({ n, cls = "" }: { n: string; cls?: string }) => <svg className={"ic " + cls} viewBox="0 0 24 24"><path d={P[n] || P.sparkle} /></svg>;
 
@@ -45,6 +48,21 @@ export function Box({ id, title, icon, value, tone, defaultOpen = false, kind, c
       </header>
       <div className="collapse"><div><div className="body">{children}</div></div></div>
     </section>
+  );
+}
+
+import { plainMove } from "./status";
+
+/** A remedial move: plain title and one line on what it does; the full technical description is one tap away in "details". */
+export function Move({ label, extra, detail }: { label: string; extra?: React.ReactNode; detail?: React.ReactNode }) {
+  const m = plainMove(label); const [open, setOpen] = useState(false);
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.3 }}>{m.title}</div>
+      {(m.why || extra) && <div className="dim" style={{ fontSize: 11.5, lineHeight: 1.35 }}>{m.why}{extra}</div>}
+      <button type="button" className="more" aria-expanded={open} onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>{open ? "hide details" : "details"} <Ic n="chevron" cls={"chev" + (open ? " up" : "")} /></button>
+      {open && <div className="moredetail" onClick={(e) => e.stopPropagation()}><div>{label}</div>{detail && <div className="dim">{detail}</div>}</div>}
+    </div>
   );
 }
 

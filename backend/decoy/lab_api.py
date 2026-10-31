@@ -33,7 +33,7 @@ class Budget(BaseModel):
 
 
 class Train(BaseModel):
-    variants: int = Field(default=140, ge=40, le=400)
+    variants: int = Field(default=260, ge=40, le=400)
     seed: int = Field(default=11, ge=0, le=10_000)
 
 
@@ -132,6 +132,49 @@ def make_router(state, user_for) -> APIRouter:
             return lab().train(b.variants, b.seed)
         except Exception as e:
             raise HTTPException(500, f"training failed: {type(e).__name__}")
+
+    @r.get("/forecast")
+    def forecast(top: int = Query(default=6, ge=1, le=12), u=Depends(user_for("risk"))):
+        """Prediction: which devices are most likely to be attacked next, why, and the best next step for each."""
+        need_model()
+        L = lab()
+        rows = sorted(L.ranking(L.session), key=lambda x: -x["likelihood"])[:top]
+        out = []
+        for x in rows:
+            why = L.explain(x["id"], L.session)
+            rec = [q for q in L.recommend(x["id"], L.session, top=3) if q["reduction"] > 0][:2]
+            out.append(dict(id=x["id"], name=x["name"], likelihood=x["likelihood"], risk=x["risk"], impact=x["impact"], main_reason=why["drivers"][0]["group"],
+                            reaches=len(why["reachable_from_asset"]), services_lost=why["services_lost"], steps=[dict(label=q["label"], cost=q["cost"], reduction=q["reduction"], apply=q["apply"]) for q in rec]))
+        meta = L.state["meta"]
+        return dict(items=out, accuracy=dict(spearman=meta["spearman_heldout"], mae=meta["mae_heldout"], top5_overlap=meta.get("top5_overlap_heldout"), test_rows=meta["test_rows"],
+                                             note="Measured on control configurations the model never saw during training. Labels come from the simulated attack worlds, so this is accuracy against the simulator, not against real incidents."))
+
+    @r.get("/impact")
+    def impact(node: str = Query(pattern=ID), start: float = Query(default=6.0, ge=0, le=23), u=Depends(user_for("risk"))):
+        """What would happen to people if this one device were taken over: people without service, how long, and the money lost. Nothing is changed."""
+        from .assumptions import A, ASSUMPTIONS
+        from .lab import service_loss
+        L = lab(); rt = state["rt"]
+        if node not in L.model["assets"] and node not in rt.ward["physical"]:
+            raise HTTPException(404, "unknown device")
+        if node in L.model["assets"] and node != "INTERNET":
+            sim = simulate_compromise(L.model, node, L.session)
+            acts = service_loss(L.model, sim["compromised"])["actions"]
+            reach = len(sim["compromised"]) - 1
+        else:
+            acts = [a for a, v in rt.ward["actions"].items() if v["target"] == node or "CB_" + v["target"] == node]
+            reach = 0
+        acts = [a for a in acts if a in rt.ward["actions"]]
+        if not acts:
+            return dict(node=node, actions=[], reach=reach, people=0, hours=0.0, money_inr=0.0, homes=0, hospitals_hit=0, lines=[], assumption="No water or power service can be switched off from here.")
+        ev = rt.phys.attack_events(sorted(acts), start)
+        res = rt.phys.loss(ev); hours = max(e["dur_h"] for e in ev)
+        homes = res["hh_h"] / max(hours, 1e-6)
+        inr = A("inr_per_household_hour") if "inr_per_household_hour" in ASSUMPTIONS else 70.0
+        hosp_h = res["hosp_water_h"] + res["hosp_power_h"]
+        return dict(node=node, actions=acts, labels=[rt.ward["actions"][a]["label"] for a in acts], reach=reach, start=start, hours=round(hours, 1), homes=int(round(homes)), people=int(round(homes * A("persons_per_household") + res["mwh"] * 700 / max(hours, 1e-6) * A("persons_per_household"))),
+                    hospitals_hit=int(sum(1 for v in res["per_hospital"].values() if v > 0.05)) + (1 if res["hosp_power_h"] > 0 else 0), money_inr=round(res["L"] * inr, 0), loss_units=res["L"],
+                    assumption=f"People = homes without water or power (average over the outage) x {A('persons_per_household')} per home. Money counts Rs {inr:.0f} per home-hour and a hospital-hour as {A('w_hospital_hour'):.0f} home-hours (SYNTHETIC rates).")
 
     @r.get("/risk")
     def risk(session: bool = True, u=Depends(user_for("risk"))):

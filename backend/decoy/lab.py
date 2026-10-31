@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-MODEL_VERSION = "lab-1.0"
+MODEL_VERSION = "lab-1.1"
 
 # ------------------------------------------------------------------ rules (deterministic, stated assumptions)
 RULES = dict(
@@ -251,18 +251,24 @@ FEATURES = [  # name, source, monotone direction (+1 more risk, -1 less risk)
     ("cvss", "NVD (data)", 1), ("epss", "FIRST EPSS (data)", 1), ("kev", "CISA KEV (data)", 1), ("exploit_signal", "rule: EPSS/KEV x patch x virtual patch", 1),
     ("exposure", "rule: internet 1.0 / internal 0.35 / isolated 0", 1), ("entry_weight", "scenario data: how often attackers start here", 1),
     ("weak_access", "data x control: weak credentials after MFA / hardening", 1), ("unpatched", "data x control: 1 - patched", 1), ("legacy", "inventory (data)", 1),
-    ("hops", "rule: shortest hops from the internet over links that exist", -1), ("in_degree", "rule: links into the asset", 1),
+    ("hops", "rule: shortest hops from the internet over links that exist", -1), ("path_prob", "rule: chance of the best route from the internet (product of step chances)", 1), ("in_degree", "rule: links into the asset", 1),
     ("mfa_on", "control", -1), ("vpatch_on", "control", -1), ("segmented", "control: share of inbound links closed", -1),
 ]
 FNAMES = [f[0] for f in FEATURES]
 GROUPS = {"vulnerability": ["cvss", "epss", "kev", "exploit_signal"], "exposure": ["exposure", "entry_weight"], "access control": ["weak_access", "mfa_on"],
-          "patch state": ["unpatched", "legacy", "vpatch_on"], "connectivity": ["hops", "in_degree", "segmented"]}
-BEST = dict(cvss=0.0, epss=0.0, kev=0.0, exploit_signal=0.0, exposure=0.0, entry_weight=0.0, weak_access=0.0, unpatched=0.0, legacy=0.0, hops=9.0, in_degree=0.0, mfa_on=0.0, vpatch_on=0.0, segmented=0.0)
+          "patch state": ["unpatched", "legacy", "vpatch_on"], "connectivity": ["hops", "in_degree", "segmented", "path_prob"]}
+BEST = dict(path_prob=0.0, cvss=0.0, epss=0.0, kev=0.0, exploit_signal=0.0, exposure=0.0, entry_weight=0.0, weak_access=0.0, unpatched=0.0, legacy=0.0, hops=9.0, in_degree=0.0, mfa_on=0.0, vpatch_on=0.0, segmented=0.0)
 EXPO = dict(internet=1.0, internal=0.35, isolated=0.0)
 
 
+def step_chance(a, c):
+    """Chance that an attacker who can reach this asset takes it: exploit signal or weak access (the same two causes the simulation checks)."""
+    return 1.0 - (1.0 - exploit_signal(a, c)) * (1.0 - eff_weak(a, c))
+
+
 def graph_features(model, controls=None, extra=()):
-    """hops from the internet and usable in-degree for every asset (disconnected assets get hops=9)."""
+    """hops from the internet, usable in-degree, links that exist, and the best-route chance (max over routes of the product of step chances) for every asset."""
+    import heapq
     c = controls or Controls()
     hops = reachable(model, "INTERNET", c, extra) if "INTERNET" in model["assets"] else {}
     all_in = {}
@@ -272,19 +278,36 @@ def graph_features(model, controls=None, extra=()):
     use = {}
     for e in usable_edges(model, c, extra):
         use[e["target"]] = use.get(e["target"], 0) + 1
-    return hops, use, all_in
+    pp = {}
+    if "INTERNET" in model["assets"]:
+        adj = adjacency(model, c, extra)
+        emax = max([a["entry_weight"] for a in model["assets"].values()] + [1e-9])
+        best, q = {"INTERNET": 1.0}, [(-1.0, "INTERNET")]
+        while q:
+            negp, u = heapq.heappop(q)
+            if -negp < best.get(u, 0.0):
+                continue
+            for e in adj.get(u, []):
+                v = e["target"]
+                w = (model["assets"][v]["entry_weight"] / emax) if u == "INTERNET" else step_chance(model["assets"][v], c)
+                p = best[u] * min(1.0, w)
+                if p > best.get(v, 0.0):
+                    best[v] = p
+                    heapq.heappush(q, (-p, v))
+        pp = best
+    return hops, use, all_in, pp
 
 
 def asset_features(model, aid, controls=None, extra=(), _g=None):
     c = controls or Controls()
     a = model["assets"][aid]
-    hops, use, all_in = _g or graph_features(model, c, extra)
+    hops, use, all_in, pp = _g or graph_features(model, c, extra)
     inbound = len(all_in.get(aid, []))
     closed = inbound - use.get(aid, 0)
     exposure = EXPO[a["exposure"]]
     if aid != "INTERNET" and aid not in hops:
         exposure = min(exposure, 0.0 if a["exposure"] == "isolated" else exposure)   # a disconnected asset keeps its stated exposure but gets hops=9
-    return dict(cvss=a["cvss"] / 10.0, epss=a["epss"], kev=1.0 if a["kev"] else 0.0, exploit_signal=exploit_signal(a, c), exposure=exposure, entry_weight=a["entry_weight"],
+    return dict(path_prob=float(pp.get(aid, 0.0)), cvss=a["cvss"] / 10.0, epss=a["epss"], kev=1.0 if a["kev"] else 0.0, exploit_signal=exploit_signal(a, c), exposure=exposure, entry_weight=a["entry_weight"],
                 weak_access=eff_weak(a, c), unpatched=0.0 if patched(a, c) else (1 - a["p_patched"]), legacy=1.0 if a["legacy"] else 0.0, hops=float(min(hops.get(aid, 9), 9)),
                 in_degree=float(use.get(aid, 0)), mfa_on=1.0 if (aid in c.mfa or aid in c.harden) else 0.0, vpatch_on=1.0 if aid in c.vpatch else 0.0,
                 segmented=(closed / inbound) if inbound else 0.0)
@@ -312,11 +335,17 @@ class RiskModel:
         test_g = set(rng.choice(ug, size=max(1, len(ug) // 5), replace=False).tolist())   # hold out whole control configurations
         te = np.array([x in test_g for x in g])
         mono = [f[2] for f in FEATURES]
-        mk = lambda: HistGradientBoostingRegressor(max_iter=250, learning_rate=0.06, max_depth=4, min_samples_leaf=8, monotonic_cst=mono, random_state=seed)
+        mk = lambda: HistGradientBoostingRegressor(max_iter=500, learning_rate=0.04, max_depth=6, min_samples_leaf=8, monotonic_cst=mono, random_state=seed)
         m = mk().fit(X[~te], y[~te])
         pred = np.clip(m.predict(X[te]), 0, 1)
         rho = float(spearmanr(pred, y[te])[0]) if len(set(y[te])) > 1 else 0.0
-        self.meta = dict(version=MODEL_VERSION, rows=int(len(X)), train_rows=int((~te).sum()), test_rows=int(te.sum()), mae_heldout=round(float(np.abs(pred - y[te]).mean()), 4),
+        hits = []
+        for gid in test_g:                      # does the model pick the same 5 most-likely-to-fall assets as the simulation, on a configuration it never saw?
+            idx = np.where(g == gid)[0]
+            if len(idx) >= 5:
+                pg = np.clip(m.predict(X[idx]), 0, 1)
+                hits.append(len(set(np.argsort(-pg)[:5]) & set(np.argsort(-y[idx])[:5])) / 5.0)
+        self.meta = dict(version=MODEL_VERSION, top5_overlap_heldout=round(float(np.mean(hits)), 3) if hits else None, rows=int(len(X)), train_rows=int((~te).sum()), test_rows=int(te.sum()), mae_heldout=round(float(np.abs(pred - y[te]).mean()), 4),
                          spearman_heldout=round(rho, 3), mean_label=round(float(y.mean()), 4), seed=seed, trained_unix=int(time.time()))
         self.reg = mk().fit(X, y)   # final model sees every row
         return self.meta

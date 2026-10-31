@@ -1,4 +1,4 @@
-"""Automated security tests for DECOY itself (experiment E14). Writes data/security_tests.json.
+"""Automated security tests for ATHENA itself (experiment E14). Writes data/security_tests.json.
 
 Run: python backend/security_tests.py
 """

@@ -1,4 +1,4 @@
-"""Security controls of DECOY itself (CERT-In Smart City Guidelines ch.4.1, 6, 10.1, 13).
+"""Security controls of ATHENA itself (CERT-In Smart City Guidelines ch.4.1, 6, 10.1, 13).
 
 Implemented here (not just described): Argon2id password hashing, TOTP MFA, signed expiring tokens, RBAC, login lock-out,
 rate limiting, security headers/CSP, two-person approval for high-impact actions, Ed25519-signed air-gap snapshots with

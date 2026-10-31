@@ -81,7 +81,7 @@ def test_model_definitions_and_quality(client):
     assert m["state"]["status"] == "ready" and m["state"]["meta"]["spearman_heldout"] > 0.7
     d = m["definitions"]
     assert "synthetic risk propensity" in d["compromise_likelihood"] and "30 days" in d["horizon"] and d["exploit_prediction"] and d["operational_impact"]
-    assert len(m["state"]["features"]) == 14
+    assert len(m["state"]["features"]) == 15
 
 
 def test_retraining_is_reproducible(client):
@@ -90,7 +90,7 @@ def test_retraining_is_reproducible(client):
     b = post(client, "/model/train", dict(variants=60, seed=4)).json()
     r2 = get(client, "/risk").json()["assets"]
     assert a["meta"]["mae_heldout"] == b["meta"]["mae_heldout"] and [x["risk"] for x in r1] == [x["risk"] for x in r2]
-    post(client, "/model/train", dict(variants=140, seed=11))   # restore the default model for the other tests
+    post(client, "/model/train", dict(variants=260, seed=11))   # restore the default model for the other tests
     assert get(client, "/model").json()["state"]["status"] == "ready"
 
 

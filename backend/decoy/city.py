@@ -197,6 +197,43 @@ ACTIONS = {
 }
 
 
+# ------------------------------------------------------------------ Mumbai-wide sites (outside the simulated ward)
+# Locations REAL (approximate); on the map they are drawn at their true bearing but NOT to scale. What each one depends on is a SYNTHETIC assumption:
+# a site is "exposed" when a device it relies on is compromised. These are shown for context and risk; the water/power physics covers the ward only.
+SITE_DEPENDS = {
+    "nuclear": ["FW_PERIM", "VPN_VENDOR", "SCADA_SRV", "ENG_WS", "HIST_01"],
+    "it_hub": ["MAIL_01", "FW_PERIM", "VPN_VENDOR", "OFFICE_PC_01"],
+    "factory": ["SCADA_WEB", "HIST_01", "JUMP_RDS", "VPN_VENDOR"],
+    "hospital": ["BMS_KEM", "VPN_VENDOR", "OFFICE_PC_03"],
+    "tourist": ["WIFI_PUB_01", "CCTV_02", "EVC_01", "GW_LIGHT_01"],
+    "transport": ["GW_LIGHT_02", "CCTV_01", "MAIL_01"],
+}
+SITES = [  # id, name, sector, priority, lat, lon, why it is a target
+    ("S_BARC", "BARC (Bhabha Atomic Research Centre)", "nuclear", "critical", 19.0176, 72.9205, "National nuclear research site: highest-priority target for state-level attackers"),
+    ("S_BKC", "Bandra-Kurla Complex (IT and finance hub)", "it_hub", "high", 19.0680, 72.8700, "Banks and data centres: ransomware and data theft"),
+    ("S_POWAI", "Powai tech park (IT hub)", "it_hub", "high", 19.1176, 72.9060, "Large IT campuses and remote vendor access"),
+    ("S_RCF", "RCF Chembur (fertiliser plant)", "factory", "high", 19.0430, 72.8990, "Chemical process control systems"),
+    ("S_BPCL", "BPCL Mahul refinery", "factory", "high", 18.9980, 72.8890, "Oil refining: industrial control systems"),
+    ("S_GODREJ", "Godrej Vikhroli industrial estate", "factory", "medium", 19.1050, 72.9270, "Large factory floor with connected machines"),
+    ("S_LILAVATI", "Lilavati Hospital (Bandra)", "hospital", "high", 19.0510, 72.8290, "Patient systems and building controls"),
+    ("S_KOKILABEN", "Kokilaben Hospital (Andheri)", "hospital", "high", 19.1310, 72.8250, "Patient systems and building controls"),
+    ("S_JJ", "J.J. Hospital (Byculla)", "hospital", "high", 18.9630, 72.8330, "Public hospital, many patients"),
+    ("S_MARINE", "Marine Drive", "tourist", "medium", 18.9440, 72.8230, "Crowds on mobile data and public Wi-Fi: phishing and fake hotspots"),
+    ("S_JUHU", "Juhu Beach", "tourist", "medium", 19.0980, 72.8260, "Crowds on mobile data and public Wi-Fi: phishing and fake hotspots"),
+    ("S_GATEWAY", "Gateway of India", "tourist", "medium", 18.9220, 72.8347, "Heavy tourist traffic, public Wi-Fi and cameras"),
+    ("S_CSMT", "CSMT railway station", "transport", "high", 18.9400, 72.8350, "Ticketing, signage and CCTV for millions of commuters"),
+    ("S_AIRPORT", "Mumbai Airport (T2)", "transport", "high", 19.0896, 72.8656, "Check-in, baggage and airport operations IT"),
+]
+
+
+def _schematic(lat, lon):
+    """True bearing from the ward centre, but at a fixed ring distance so every site fits on the map (the map says 'not to scale')."""
+    x, z = to_xz(lat, lon)
+    d = math.hypot(x, z) or 1.0
+    r = 3500.0 + min(d, 20000.0) * 0.05
+    return round(x / d * r, 1), round(z / d * r, 1)
+
+
 def build_ward() -> dict:
     feats = _osm()
     def hosp(needle, fallback, tag_near=None):
@@ -253,6 +290,9 @@ def build_ward() -> dict:
     zc = {"Z1": (19.0340, 72.8550), "Z2": (19.0270, 72.8490), "Z3": (19.0010, 72.8410), "Z4": (19.0010, 72.8350), "Z5": (19.0180, 72.8465)}
     for zid, z in WATER["zones"].items():
         physical[zid] = phys(zid, f"{z['name']} homes", "zone", (*zc[zid], "synthetic"), z)
+    for sid, name, sector, prio, lat, lon, why in SITES:
+        physical[sid] = dict(id=sid, name=name, kind="site", sector=sector, priority=prio, why=why, depends_on=SITE_DEPENDS[sector],
+                             geo={"lat": lat, "lon": lon, "source": "approx"}, xz=_schematic(lat, lon), schematic=True)
     return dict(assets=assets, edges=edges, physical=physical, water=WATER, power=POWER, actions=ACTIONS,
                 meta=dict(city="Mumbai", ward="Parel-Sion-Matunga (F/South + F/North + G/North)", origin=ORIGIN,
                           note="Hospital, substation and water-tower locations REAL (OSM). Device inventory, links, pump/tank sizes SYNTHETIC."))
