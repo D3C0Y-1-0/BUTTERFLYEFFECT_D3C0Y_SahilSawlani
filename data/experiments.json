@@ -1,0 +1,600 @@
+{
+ "E6": {
+  "claim": "Fast Guesser is accurate, calibrated and fast",
+  "target": "coverage >= 0.85, Spearman >= 0.90, >= 100x faster",
+  "result": {
+   "n_train": 816,
+   "n_cal": 408,
+   "n_test": 816,
+   "spearman": 0.978,
+   "coverage": 0.928,
+   "target_coverage": 0.9,
+   "mae_log": 0.246,
+   "escalated_frac": 0.471,
+   "worst10_escalated": 1.0,
+   "predict_seconds": 6.775937828363157e-06,
+   "exact_sim_seconds": 0.1331,
+   "speedup": 19641,
+   "note": "Test set = attack combinations the model never saw. In this 8-action ward the exact table is small enough to be complete; the guesser matters for larger cities."
+  },
+  "met": true
+ },
+ "_meta": {
+  "generated": "2026-10-31 17:00:19",
+  "note": "All numbers come from the simulated Mumbai ward; targets: experiments/targets.md"
+ },
+ "E1": {
+  "claim": "Ranking matches brute-force ground truth (20,000 simulated attacks)",
+  "target": "Spearman >= 0.90, top-10 overlap >= 7, beats all baselines",
+  "result": {
+   "ours (3000 worlds)": {
+    "spearman": 0.993,
+    "top10_overlap": 10
+   },
+   "ours (400 worlds)": {
+    "spearman": 0.941,
+    "top10_overlap": 8
+   },
+   "cvss_x_importance": {
+    "spearman": 0.454,
+    "top10_overlap": 4
+   },
+   "epss_x_importance": {
+    "spearman": 0.419,
+    "top10_overlap": 7
+   },
+   "betweenness": {
+    "spearman": 0.433,
+    "top10_overlap": 8
+   },
+   "cvss": {
+    "spearman": 0.564,
+    "top10_overlap": 6
+   }
+  },
+  "met": true
+ },
+ "E2": {
+  "claim": "Real harm overturns severity",
+  "target": ">= 3 devices move > 10 places vs CVSS x importance",
+  "result": {
+   "devices_moved_over_10": 5,
+   "examples": [
+    {
+     "device": "KEM hospital building-management system",
+     "id": "BMS_KEM",
+     "cvss_rank": 4,
+     "sar_rank": 19,
+     "moved": -15
+    },
+    {
+     "device": "Operator HMI / programming station",
+     "id": "HMI_01",
+     "cvss_rank": 11,
+     "sar_rank": 25,
+     "moved": -14
+    },
+    {
+     "device": "Feeder-F3 breaker RTU (Parel substation)",
+     "id": "RTU_F3",
+     "cvss_rank": 8,
+     "sar_rank": 22,
+     "moved": -14
+    },
+    {
+     "device": "Vendor remote-access VPN",
+     "id": "VPN_VENDOR",
+     "cvss_rank": 16,
+     "sar_rank": 3,
+     "moved": 13
+    },
+    {
+     "device": "Cross-tie valve controller V1",
+     "id": "PLC_V1",
+     "cvss_rank": 3,
+     "sar_rank": 16,
+     "moved": -13
+    }
+   ]
+  },
+  "met": true
+ },
+ "E3": {
+  "claim": "Greedy plan is near the exhaustive optimum",
+  "target": "within 10%, better than random and CVSS-first",
+  "result": {
+   "baseline_loss": 20706,
+   "exhaustive_best": 3719,
+   "greedy": 3719,
+   "random_mean": 9725,
+   "cvss_first": 13433,
+   "feasible_plans_checked": 68,
+   "greedy_gap_pct": 0.0
+  },
+  "met": true
+ },
+ "E4": {
+  "claim": "Counting the fix's own outage lowers total harm",
+  "target": "total with term < total without",
+  "result": {
+   "with_downtime_term": {
+    "residual": 1718,
+    "maintenance_outage": 0,
+    "total": 1718,
+    "patches": 10
+   },
+   "ignoring_downtime": {
+    "residual": 1459,
+    "maintenance_outage": 625,
+    "total": 2084,
+    "patches": 10
+   },
+   "refused_now": [
+    {
+     "fix": "Update the firmware on Hospital-feeder valve controller V2 (needs a restart)",
+     "loss_if_now": 57.1,
+     "best_hour": 2.0
+    },
+    {
+     "fix": "Update the firmware on Feeder-F1 breaker RTU (Sion substation) (needs a restart)",
+     "loss_if_now": 1338.8,
+     "best_hour": 2.0
+    },
+    {
+     "fix": "Update the firmware on Feeder-F2 breaker RTU (Sewri substation) (needs a restart)",
+     "loss_if_now": 2047.5,
+     "best_hour": 2.0
+    },
+    {
+     "fix": "Update the firmware on Feeder-F3 breaker RTU (Parel substation) (needs a restart)",
+     "loss_if_now": 630.0,
+     "best_hour": 2.0
+    }
+   ]
+  },
+  "met": true
+ },
+ "E8": {
+  "claim": "Ranking is stable under +-20% assumption changes",
+  "target": "top-10 overlap >= 6 in every case",
+  "result": {
+   "attacker skill -20%": {
+    "top10_overlap": 10,
+    "spearman": 0.993
+   },
+   "attacker skill +20%": {
+    "top10_overlap": 10,
+    "spearman": 0.991
+   },
+   "EPSS -20%": {
+    "top10_overlap": 10,
+    "spearman": 0.995
+   },
+   "EPSS +20%": {
+    "top10_overlap": 10,
+    "spearman": 0.99
+   },
+   "hidden-link beliefs -0.2": {
+    "top10_overlap": 10,
+    "spearman": 0.984
+   },
+   "hidden-link beliefs +0.2": {
+    "top10_overlap": 10,
+    "spearman": 0.981
+   },
+   "patch levels -20%": {
+    "top10_overlap": 10,
+    "spearman": 0.99
+   },
+   "patch levels +20%": {
+    "top10_overlap": 10,
+    "spearman": 0.999
+   }
+  },
+  "met": true
+ },
+ "E11": {
+  "claim": "The reachability engine scales",
+  "target": "10^4 nodes in < 60 s per 500 attack worlds; near-linear growth",
+  "result": {
+   "runs": [
+    {
+     "nodes": 100,
+     "edges": 166,
+     "worlds": 500,
+     "seconds": 0.01,
+     "mem_mb": 0.2
+    },
+    {
+     "nodes": 1000,
+     "edges": 1786,
+     "worlds": 500,
+     "seconds": 0.31,
+     "mem_mb": 1.9
+    },
+    {
+     "nodes": 10000,
+     "edges": 17445,
+     "worlds": 500,
+     "seconds": 4.62,
+     "mem_mb": 18.7
+    }
+   ],
+   "growth_10x_nodes": 14.9,
+   "note": "Pure-Python edge loop over vectorised worlds; no GPU, single core. Second-city generation from config is NOT part of this build."
+  },
+  "met": true
+ },
+ "E5": {
+  "claim": "The highest-value question first yields a better plan",
+  "target": "VoI <= random and <= most-uncertain for k=1,3,5 (lower is better)",
+  "result": {
+   "k=0": {
+    "value_of_information": 5256,
+    "most_uncertain_first": 5256,
+    "random_mean": 5256
+   },
+   "k=1": {
+    "value_of_information": 5478,
+    "most_uncertain_first": 5256,
+    "random_mean": 5293
+   },
+   "k=3": {
+    "value_of_information": 4794,
+    "most_uncertain_first": 5478,
+    "random_mean": 5196
+   },
+   "k=5": {
+    "value_of_information": 4794,
+    "most_uncertain_first": 5478,
+    "random_mean": 5190
+   },
+   "k=all (full information)": {
+    "residual": 4794
+   }
+  },
+  "met": false,
+  "order": [
+   {
+    "id": "ver:PLC_PS2",
+    "text": "Is Pump-station PS2 controller (Parel) running the vulnerable firmware (CVE-2021-22681)?",
+    "voi": 476.4
+   },
+   {
+    "id": "edge:E057",
+    "text": "Can Vendor remote-access VPN reach Engineering workstation (RDP)?",
+    "voi": 44.1
+   },
+   {
+    "id": "edge:E054",
+    "text": "Can Street-light gateway 01 (Sion) reach Pump-station PS1 controller (Sion) (MODBUS_TCP)?",
+    "voi": 0.0
+   },
+   {
+    "id": "edge:E055",
+    "text": "Can Public Wi-Fi controller (Parel) reach Ward-office PC 02 (remote-access enabled) (RDP)?",
+    "voi": 0.0
+   },
+   {
+    "id": "edge:E056",
+    "text": "Can Historian / network monitor reach Engineering workstation (SMB)?",
+    "voi": 0.0
+   }
+  ]
+ },
+ "E10": {
+  "claim": "Unseen attack types are caught (trained on standard/insider only; tested on zero-day, wear, spoof)",
+  "target": "fused median delay < 30 min on held-out types, <= 1 false-alarm minute per simulated day",
+  "result": {
+   "detection": {
+    "zero_day (stealth 0.8)": {
+     "fused (network + physics)": {
+      "detected": "10/10",
+      "median_delay_min": 19.0
+     },
+     "network only": {
+      "detected": "10/10",
+      "median_delay_min": 21.0
+     },
+     "physics only": {
+      "detected": "10/10",
+      "median_delay_min": 43.5
+     }
+    },
+    "zero_day (stealth 4.0)": {
+     "fused (network + physics)": {
+      "detected": "10/10",
+      "median_delay_min": 9.5
+     },
+     "network only": {
+      "detected": "10/10",
+      "median_delay_min": 16.5
+     },
+     "physics only": {
+      "detected": "10/10",
+      "median_delay_min": 45.0
+     }
+    },
+    "wear (stealth 0.8)": {
+     "fused (network + physics)": {
+      "detected": "9/10",
+      "median_delay_min": 20.0
+     },
+     "network only": {
+      "detected": "9/10",
+      "median_delay_min": 20.0
+     },
+     "physics only": {
+      "detected": "9/10",
+      "median_delay_min": 53.0
+     }
+    },
+    "wear (stealth 4.0)": {
+     "fused (network + physics)": {
+      "detected": "9/9",
+      "median_delay_min": 10.0
+     },
+     "network only": {
+      "detected": "9/9",
+      "median_delay_min": 10.0
+     },
+     "physics only": {
+      "detected": "7/9",
+      "median_delay_min": 45.0
+     }
+    },
+    "spoof (stealth 0.8)": {
+     "fused (network + physics)": {
+      "detected": "9/10",
+      "median_delay_min": 20.0
+     },
+     "network only": {
+      "detected": "9/10",
+      "median_delay_min": 20.0
+     },
+     "physics only": {
+      "detected": "9/10",
+      "median_delay_min": 46.0
+     }
+    },
+    "spoof (stealth 4.0)": {
+     "fused (network + physics)": {
+      "detected": "9/9",
+      "median_delay_min": 10.0
+     },
+     "network only": {
+      "detected": "9/9",
+      "median_delay_min": 10.0
+     },
+     "physics only": {
+      "detected": "7/9",
+      "median_delay_min": 34.0
+     }
+    }
+   },
+   "false_alarm_minutes_over_3_normal_days": {
+    "fused (network + physics)": 0,
+    "network only": 0,
+    "physics only": 0
+   }
+  },
+  "met": true
+ },
+ "E9": {
+  "claim": "Healing is surgical: less service lost than no response or isolate-everything, with far fewer devices cut off",
+  "target": "lower mean loss than both, <1/3 of the devices disconnected",
+  "result": {
+   "scenarios": 80,
+   "attacks_that_would_hurt_without_response": 47,
+   "mean_loss_decoy": 2501,
+   "mean_loss_no_response": 21694,
+   "mean_loss_isolate_all": 44145,
+   "mean_household_hours_decoy": 1792,
+   "mean_household_hours_none": 15912,
+   "mean_household_hours_iso": 32840,
+   "hospital_hours_decoy": 0.103,
+   "hospital_hours_none": 1.219,
+   "hospital_hours_iso": 3.99,
+   "detected_pct": 60.0,
+   "median_detect_minutes": 32.0,
+   "attack_reached_physical_effect_pct_decoy": 25.0,
+   "attack_reached_physical_effect_pct_none": 58.8,
+   "mean_devices_disconnected_decoy": 0.2,
+   "devices_disconnected_isolate_all": 27
+  },
+  "met": true
+ },
+ "E12": {
+  "claim": "Safety Check blocks unsafe actions",
+  "target": "no applied action worsens hospital service",
+  "result": {
+   "candidate_actions_blocked_in_scenarios": 16,
+   "scenarios_where_response_made_hospital_worse": 0,
+   "isolate_everything_would_be_blocked_at_hours": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    16,
+    22,
+    23
+   ],
+   "isolate_everything_blocked_hour_count": 17
+  },
+  "met": true
+ },
+ "E13": {
+  "claim": "Decoys reduce attacker progress",
+  "target": "fewer attacker hops reach a controller with decoys than without",
+  "result": {
+   "scenarios": 50,
+   "mean_attacker_hops_with_decoys": 3.26,
+   "mean_attacker_hops_without_decoys": 3.26,
+   "physical_effect_pct_with": 46.0,
+   "physical_effect_pct_without": 46.0,
+   "mean_loss_with": 325,
+   "mean_loss_without": 325,
+   "decoy_chosen_by_policy_pct": 4.0,
+   "forced_decoys": {
+    "mean_attacker_hops": 3.72,
+    "physical_effect_pct": 76.0,
+    "mean_loss": 43549,
+    "contained_pct": 24.0
+   },
+   "note": "When the Healer is free to choose, it rarely picks a decoy (cheaper options such as isolating the foothold score better). 'forced_decoys' isolates the decoy mechanism."
+  },
+  "met": false
+ },
+ "E7": {
+  "claim": "Threat layer anticipates exploitation (back-test, 30 days before KEV listing)",
+  "target": "majority with EPSS >= 0.1",
+  "result": {
+   "n_kev_cves_with_history": 40,
+   "frac_epss_ge_0_1": 0.4,
+   "median_percentile": 0.541,
+   "frac_top_10_percent": 0.45,
+   "reference": "FIRST: EPSS >= 0.1 covers ~63% of exploited CVEs at 2.7% effort"
+  },
+  "met": false
+ },
+ "E15": {
+  "claim": "PPO responder handles held-out zero-day products better than the search Healer and no response",
+  "target": "lower mean total cost than both, larger contained share than search, fewer devices cut than isolate-everything",
+  "result": {
+   "policies": {
+    "No response": {
+     "n": 300,
+     "mean_total": 14748.099119206618,
+     "median_total": 0.0,
+     "stderr": 2731.748459022623,
+     "mean_service": 14677.43245253995,
+     "mean_ops": 70.66666666666667,
+     "contained": 0.52,
+     "acted": 0.48,
+     "devices_cut": 0.0,
+     "hosp_h": 0.8662010325393436
+    },
+    "Isolate everything": {
+     "n": 300,
+     "mean_total": 11987.418326831259,
+     "median_total": 15800.0,
+     "stderr": 497.5088175636546,
+     "mean_service": 372.7516601645909,
+     "mean_ops": 11614.666666666666,
+     "contained": 0.97,
+     "acted": 0.03,
+     "devices_cut": 19.8,
+     "hosp_h": 0.0221958292438991
+    },
+    "Search Healer": {
+     "n": 300,
+     "mean_total": 1819.4458368918179,
+     "median_total": 300.0,
+     "stderr": 759.1702977013041,
+     "mean_service": 1232.1125035584846,
+     "mean_ops": 587.3333333333334,
+     "contained": 0.94,
+     "acted": 0.06,
+     "devices_cut": 1.04,
+     "hosp_h": 0.06594277906794727
+    },
+    "PPO responder": {
+     "n": 300,
+     "mean_total": 4609.843399267635,
+     "median_total": 500.0,
+     "stderr": 1788.2519773200995,
+     "mean_service": 4066.8433992676346,
+     "mean_ops": 543.0,
+     "contained": 0.8766666666666667,
+     "acted": 0.12333333333333334,
+     "devices_cut": 1.2933333333333332,
+     "hosp_h": 0.2532947346602981
+    }
+   },
+   "paired": {
+    "PPO minus Search Healer": {
+     "mean_diff": 2790.3975623758165,
+     "ci95": [
+      -523.9684888360235,
+      7024.879825691856
+     ]
+    },
+    "PPO minus No response": {
+     "mean_diff": -10138.255719938983,
+     "ci95": [
+      -14562.511699163913,
+      -6349.859909662332
+     ]
+    },
+    "PPO minus Isolate everything": {
+     "mean_diff": -7377.5749275636235,
+     "ci95": [
+      -10453.72114193348,
+      -3247.6785425451963
+     ]
+    }
+   },
+   "clauses": {
+    "cheaper_than_search": false,
+    "cheaper_than_no_response": true,
+    "contains_more_than_search": false,
+    "fewer_devices_than_isolate_all": true
+   },
+   "by_mode": {
+    "standard": {
+     "search": 1109,
+     "ppo": 1723
+    },
+    "wear": {
+     "search": 4590,
+     "ppo": 12992
+    },
+    "insider": {
+     "search": 617,
+     "ppo": 714
+    },
+    "spoof": {
+     "search": 538,
+     "ppo": 2122
+    }
+   },
+   "episodes": 300,
+   "held_out_products": [
+    "D-Link DCS-2530L",
+    "Delta Electronics DOPSoft 2",
+    "Microsoft Windows 10",
+    "Microsoft Windows 7 (legacy)",
+    "TP-Link TL-WR841N class AP",
+    "Zabbix Frontend"
+   ],
+   "selected": "v2"
+  },
+  "met": false
+ },
+ "E16": {
+  "claim": "The zero-day library speeds up the second encounter",
+  "target": "repeat-encounter cost lower than first-encounter cost",
+  "result": {
+   "first_encounter": 2717.0034836491955,
+   "repeat_encounter": 2419.0034836491955,
+   "diff": -297.9999999999999,
+   "ci95": [
+    -719.1666666666664,
+    -13.333333333333334
+   ],
+   "learned_in_first_pct": 10.0,
+   "n": 60
+  },
+  "met": true
+ }
+}

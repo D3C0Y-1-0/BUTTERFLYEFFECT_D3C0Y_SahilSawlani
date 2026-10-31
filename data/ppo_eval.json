@@ -1,0 +1,159 @@
+{
+ "policies": {
+  "No response": {
+   "n": 300,
+   "mean_total": 14748.099119206618,
+   "median_total": 0.0,
+   "stderr": 2731.748459022623,
+   "mean_service": 14677.43245253995,
+   "mean_ops": 70.66666666666667,
+   "contained": 0.52,
+   "acted": 0.48,
+   "devices_cut": 0.0,
+   "hosp_h": 0.8662010325393436
+  },
+  "Isolate everything": {
+   "n": 300,
+   "mean_total": 11987.418326831259,
+   "median_total": 15800.0,
+   "stderr": 497.5088175636546,
+   "mean_service": 372.7516601645909,
+   "mean_ops": 11614.666666666666,
+   "contained": 0.97,
+   "acted": 0.03,
+   "devices_cut": 19.8,
+   "hosp_h": 0.0221958292438991
+  },
+  "Search Healer": {
+   "n": 300,
+   "mean_total": 1819.4458368918179,
+   "median_total": 300.0,
+   "stderr": 759.1702977013041,
+   "mean_service": 1232.1125035584846,
+   "mean_ops": 587.3333333333334,
+   "contained": 0.94,
+   "acted": 0.06,
+   "devices_cut": 1.04,
+   "hosp_h": 0.06594277906794727
+  },
+  "PPO responder": {
+   "n": 300,
+   "mean_total": 4609.843399267635,
+   "median_total": 500.0,
+   "stderr": 1788.2519773200995,
+   "mean_service": 4066.8433992676346,
+   "mean_ops": 543.0,
+   "contained": 0.8766666666666667,
+   "acted": 0.12333333333333334,
+   "devices_cut": 1.2933333333333332,
+   "hosp_h": 0.2532947346602981
+  }
+ },
+ "paired": {
+  "PPO minus Search Healer": {
+   "mean_diff": 2790.3975623758165,
+   "ci95": [
+    -523.9684888360235,
+    7024.879825691856
+   ]
+  },
+  "PPO minus No response": {
+   "mean_diff": -10138.255719938983,
+   "ci95": [
+    -14562.511699163913,
+    -6349.859909662332
+   ]
+  },
+  "PPO minus Isolate everything": {
+   "mean_diff": -7377.5749275636235,
+   "ci95": [
+    -10453.72114193348,
+    -3247.6785425451963
+   ]
+  }
+ },
+ "clauses": {
+  "cheaper_than_search": false,
+  "cheaper_than_no_response": true,
+  "contains_more_than_search": false,
+  "fewer_devices_than_isolate_all": true
+ },
+ "held_out_products": [
+  "D-Link DCS-2530L",
+  "Delta Electronics DOPSoft 2",
+  "Microsoft Windows 10",
+  "Microsoft Windows 7 (legacy)",
+  "TP-Link TL-WR841N class AP",
+  "Zabbix Frontend"
+ ],
+ "train_products": [
+  "Apache Java portal (Log4j2)",
+  "Fortinet FortiGate / FortiOS",
+  "Generic Mail gateway",
+  "Generic OCPP 1.6 charger",
+  "Hikvision DS-2CD web server",
+  "Ivanti Connect Secure",
+  "Microsoft Windows Server 2008 R2",
+  "Microsoft Windows Server 2008 RDS",
+  "Rockwell Logix controller",
+  "Schneider Electric U.motion Builder",
+  "Siemens SIMATIC CP 1543-1",
+  "TP-Link TL-WR841N class gateway",
+  "VMware ESXi host",
+  "Zyxel DSL CPE"
+ ],
+ "episodes": 300,
+ "by_mode": {
+  "standard": {
+   "search": 1109,
+   "ppo": 1723
+  },
+  "wear": {
+   "search": 4590,
+   "ppo": 12992
+  },
+  "insider": {
+   "search": 617,
+   "ppo": 714
+  },
+  "spoof": {
+   "search": 538,
+   "ppo": 2122
+  }
+ },
+ "ppo_actions": {
+  "Keep watching": 1165,
+  "Isolate Jump host (RDS)": 149,
+  "Close the SNMP link Smart-meter data gateway -> ": 142,
+  "Close the HTTPS link SCADA read-only web portal ": 97,
+  "Virtual patch": 69,
+  "Send a crew to restore equipment under local man": 61,
+  "Rotate credentials / add MFA for CCTV camera (Si": 3
+ },
+ "validation": {
+  "s1": 1132.8525,
+  "s2": 892.6,
+  "s3": 939.2805252518514,
+  "s4": 833.5560434535568,
+  "v2": 739.052732167203,
+  "current": 739.052732167203
+ },
+ "selected": "v2",
+ "e16": {
+  "first_encounter": 2717.0034836491955,
+  "repeat_encounter": 2419.0034836491955,
+  "diff": -297.9999999999999,
+  "ci95": [
+   -719.1666666666664,
+   -13.333333333333334
+  ],
+  "learned_in_first_pct": 10.0,
+  "n": 60
+ },
+ "default_responder": "search",
+ "generated": "2026-10-31 18:41:47",
+ "train_meta": {
+  "iters": 100,
+  "steps": 2048
+ }
+}

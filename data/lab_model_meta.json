@@ -1,0 +1,1 @@
+{"version": "lab-1.0", "rows": 3780, "train_rows": 3024, "test_rows": 756, "mae_heldout": 0.0188, "spearman_heldout": 0.852, "mean_label": 0.0723, "seed": 11, "trained_unix": 1793461806}
