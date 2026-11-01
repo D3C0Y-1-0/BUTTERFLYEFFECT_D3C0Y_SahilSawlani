@@ -9,6 +9,8 @@ look inside the other.
 """
 from __future__ import annotations
 
+from .assumptions import A
+
 import numpy as np
 
 
@@ -40,9 +42,9 @@ class Environment:
         decoys = self._decoys()
         if decoys:
             near = [x for x in decoys.values() if x["attached_to"] in c.compromised]
-            if near and self.rng.random() < 0.6:
+            if near and self.rng.random() < A("decoy_lure_p"):
                 x = near[0]
-                trapped = bool(self.rng.random() < 0.85)
+                trapped = bool(self.rng.random() < A("decoy_trap_p"))
                 ev = [dict(type="decoy_touch", campaign=c.id, minute=minute, decoy=x["id"], text=f"Decoy {x['id']} touched from {x['attached_to']}")]
                 if trapped:
                     ev.append(dict(type="attack_blocked", campaign=c.id, minute=minute, text=f"{c.id}: trapped in a decoy"))

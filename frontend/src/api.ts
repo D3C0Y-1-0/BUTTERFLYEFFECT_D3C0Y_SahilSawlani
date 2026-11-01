@@ -49,7 +49,7 @@ export async function boot() {
 function connect() {
   const { token } = getState(); if (!token) return;
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`);
+  ws = new WebSocket(`${proto}://${location.host}/ws`);   // the token goes in the first message, never in the URL
   let pending: any = null, timer: any = null;
   const flush = () => {   // the server may send 8 frames a second; the interface updates 3 times a second, which keeps it light
     timer = null; if (!pending) return; const snap = pending; pending = null;
@@ -57,7 +57,7 @@ function connect() {
     const item = { t: snap.t, cs: snap.watch.cusum ?? 0, line: snap.watch.cusum_line || 1, raw: snap.watch.p, p: snap.watch.shown ?? snap.watch.p, live: snap.services.served_frac, none: snap.compare.none_served, iso: snap.compare.iso_served };
     setState({ snap, hist: last && last.t === snap.t ? hist : [...hist, item] });
   };
-  ws.onopen = () => { retry = 0; setState({ connected: true }); };
+  ws.onopen = () => { retry = 0; ws.send(JSON.stringify({ token })); setState({ connected: true }); };
   ws.onclose = () => { setState({ connected: false }); clearTimeout(timer); if (getState().token) setTimeout(connect, Math.min(5000, 800 * ++retry)); };
   ws.onmessage = (m) => {
     let f: any; try { f = JSON.parse(m.data); } catch { return; }

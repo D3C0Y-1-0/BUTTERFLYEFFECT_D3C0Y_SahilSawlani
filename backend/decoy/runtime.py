@@ -38,7 +38,7 @@ ESCALATE_MIN = 10   # simulated minutes a safe plan may wait for a human while s
 
 
 class Runtime:
-    def __init__(self, sync=False, n_samples=3000, seed=7, verbose=True):
+    def __init__(self, sync=False, n_samples=3000, seed=7, verbose=True, persist=False):
         t0 = time.time()
         self.sync = sync
         self.seed = seed
@@ -52,7 +52,7 @@ class Runtime:
         self.healer = Healer(self.ward, self.T, self.phys)
         if verbose: print("[boot] training watchdog ...", flush=True)
         self.watchdog, self.traffic, _ = build_watchdog(self.ward, self.T, seed=0)
-        self.bb, self.vault = BlackBox(), LogVault()
+        self.bb, self.vault = BlackBox(persist=persist), LogVault()
         self.tg = TimeGuard(["SCADA_SRV", "HIST_01", "PLC_PS1", "PLC_PS2", "RTU_F1", "RTU_F2", "RTU_F3", "JUMP_RDS"])
         self.lock = threading.RLock()
         self.ex_healer = ThreadPoolExecutor(1)
@@ -103,6 +103,7 @@ class Runtime:
             self.env_none = Environment(self.ward, self.T, seed=seed)          # same dice as the live world, so the three worlds differ only because of what the defence did
             self.env_iso = Environment(self.ward, self.T, refuse_all=lambda: self.iso_cut, seed=seed)
             self.last_net_ev = -9999
+            self.auto_log = deque()
             self.iso_cut = False
             self.incidents, self.proposals, self.feed = [], [], deque(maxlen=300)
             self.hi, self.lo = 0, 0
@@ -305,7 +306,7 @@ class Runtime:
             self._physical(self.iso, p)
         tele = L.step()
         self.none.step(); self.iso.step()
-        counts = self.traffic.normal()
+        counts = self.traffic.normal(m)
         decoy_hits = self.traffic.add(counts, fl)
         obs = self.watchdog.observe(counts, tele, m, decoy_hits)
         self.last_obs = obs
@@ -349,6 +350,19 @@ class Runtime:
             tw.breaker_cycle()
             return
         tw.act(p["kind"], p["target"], p["dur_min"])
+        if spoof and p.get("mode") == "spoof_coherent" and p["kind"] == "pump_off":
+            # a careful forger: the pump "keeps running", its flow matches the outflow, the tank level stays where it was and the hospitals' readings stay normal, so no physical
+            # law on the control network is broken. Only a path the attacker does not control can reveal it.
+            until = tw.minute + max(int(p.get("dur_min", 0)), 1)
+            pn = p["target"]; tk = {"PS1": "T1", "PS2": "T2"}[pn]; fo = {"PS1": "FLOW_A", "PS2": "FLOW_B"}[pn]
+            tw.spoof[f"{pn}_state"] = 1.0
+            tw.spoof[f"{pn}_flow"] = lambda rep, fo=fo: rep[fo]
+            tw.spoof[f"{tk}_level"] = float(tw.level[tk])
+            for tag in (f"{pn}_state", f"{pn}_flow", f"{tk}_level"):
+                tw.spoof_until[tag] = until
+            for h in tw.W["hospitals"]:
+                tw.spoof[f"{h}_FLOW"] = (lambda rep, h=h: tw.flows["dem"].get(h, 0.0))
+                tw.spoof_until[f"{h}_FLOW"] = until
         if spoof and p.get("mode") == "spoof":
             until = tw.minute + max(int(p.get("dur_min", 0)), 1)
             if p["kind"] == "pump_off":
@@ -441,13 +455,21 @@ class Runtime:
                 continue
             if not all((s.get("safety") or {}).get("ok", True) for s in prop["steps"]):
                 continue
+            why = self._auto_guard(inc, prop["steps"])
+            if why:      # the same limits apply to escalation: unanswered does not mean permitted. Keep asking a person, louder, instead of acting.
+                if m - prop.get("paged", -9999) >= 30:
+                    prop["paged"] = m
+                    prop["held"] = why
+                    self.note("page_again", "crit", f"Nobody answered {prop['id']} and it is still held: {why}. Paging the on-call operator again; ATHENA will not apply it by itself.", proposal=prop["id"])
+                continue
             self.note("escalation", "warn", f"Nobody answered {prop['id']} for {ESCALATE_MIN} min while service is at risk: autonomy applied the safety-checked plan.", proposal=prop["id"])
+            self.auto_log.extend([m] * len(prop["steps"]))
             self.approve(prop["id"], actor="autonomy:escalation", _locked=True)
 
     def _new_incident(self, obs, m):
         inc = dict(id=f"INC-{len(self.incidents)+1:03d}", t0=m, clock0=self.clock(), deadline=m + 360, status="open", escalated=[], evidence_nodes=[], physics=[],
                    p_max=round(obs["p"], 3), actions=[], next_hops=[], stages=[dict(stage="Detected", minute=m)], iso_cut_at=m, reported=False, planned_for=0,
-                   cost=dict(), campaign=None, planning=False, detect_signals=dict(ae=obs["ae"], zmax=obs["zmax"], novelty=obs["novelty"], phys_z=obs["phys_z"]))
+                   cost=dict(), campaign=None, planning=False, decoy_only=bool(obs["features"][4] > 0 and not obs["evidence"] and not obs["violations"]), detect_signals=dict(ae=obs["ae"], zmax=obs["zmax"], novelty=obs["novelty"], phys_z=obs["phys_z"]))
         self.incidents.append(inc)
         # iso counterfactual: cut everything now
         if not self.iso_cut:
@@ -533,6 +555,13 @@ class Runtime:
         elif self.autonomy == "auto_low":
             auto = all(s["service"] == 0 and s["ops"] <= 800 and s["kind"] in ("virtual_patch", "close_link", "rotate_creds", "decoy", "quarantine", "manual_restore") for s in steps)
         if auto:
+            why = self._auto_guard(inc, steps)
+            if why:
+                auto = False
+                prop["held"] = why
+                self.note("auto_held", "warn", f"Proposal {pid} was NOT applied automatically: {why}", proposal=pid, incident=inc["id"])
+        if auto:
+            self.auto_log.extend([self.live.minute] * len(steps))
             self.approve(pid, actor="autonomy:" + self.autonomy, _locked=True)
         else:
             self.note("approval_needed", "warn", f"Proposal {pid} needs human approval (autonomy = {self.autonomy}); final authority stays with the operator (CERT-In 10.1).", proposal=pid)
@@ -546,6 +575,49 @@ class Runtime:
         return (f"The attacker is probably at {names}. Doing nothing leaves an expected {dec['observe']['J']:,.0f} household-hour-equivalents of harm. "
                 f"The plan ({len(dec['steps'])} step(s)) cuts the expected total to {dec['plan_J']:,.0f}. First step: {s0['label']}. "
                 f"Isolating the whole network would cost {dec['isolate_all']['J']:,.0f} and switch off every remote link, so it is only a comparison.")
+
+    DISRUPTIVE = ("quarantine", "close_link", "hospital_isolate", "pump_off", "manual_restore")
+    AUTO_MAX, AUTO_WINDOW = 4, 120        # at most this many automatic steps in this many simulated minutes
+
+    def _sensitive_nodes(self):
+        """Devices a wrong cut could hurt patients through: anything the hospital depends on, and anything directly connected to it."""
+        if getattr(self, "_sens", None) is None:
+            core = {k for k, a in self.ward["assets"].items() if a.get("hospital_dependent")}
+            near = set(core)
+            for e in self.ward["edges"]:
+                if e["source"] in core:
+                    near.add(e["target"])
+                if e["target"] in core:
+                    near.add(e["source"])
+            self._sens = near
+        return self._sens
+
+    def _auto_guard(self, inc, steps):
+        """Reasons an automatic action must wait for a person. Forged network traffic alone must never be able to switch off a hospital-adjacent system (an attacker could use
+        ATHENA to cause the outage), and a burst of automatic cuts is slowed down so a flood of fake alarms cannot make ATHENA cut a whole network by itself."""
+        m = self.live.minute
+        while self.auto_log and m - self.auto_log[0] > self.AUTO_WINDOW:
+            self.auto_log.popleft()
+        if len(self.auto_log) + len(steps) > self.AUTO_MAX:
+            return f"rate limit: {len(self.auto_log)} automatic steps already ran in the last {self.AUTO_WINDOW} minutes (limit {self.AUTO_MAX}); a person must approve more"
+        if inc.get("decoy_only") and any(s["kind"] in self.DISRUPTIVE or s.get("service") for s in steps):
+            return "only a decoy was touched and nothing else looks odd: this could be an authorised scanner, so a person must confirm before anything is cut"
+        sens = self._sensitive_nodes()
+        corroborated = bool(inc.get("physics")) or len([n for n in inc["evidence_nodes"] if n != "INTERNET"]) >= 3
+        for s in steps:
+            if s["kind"] not in self.DISRUPTIVE and not s.get("service"):
+                continue
+            t = s["target"]
+            touched = set(t.get("nodes") or []) | ({t["node"]} if t.get("node") else set())
+            if t.get("edge"):
+                e = self.ward["edges"][self.edge_index[t["edge"]]] if t["edge"] in self.edge_index else None
+                if e:
+                    touched |= {e["source"], e["target"]}
+            hit = sorted(touched & sens)
+            if hit and not corroborated:
+                names = ", ".join(self.ward["assets"][n]["name"] for n in hit[:2])
+                return f"it would cut hospital-adjacent equipment ({names}) on network evidence alone; no physical reading or second device backs it up, so a person must confirm"
+        return None
 
     def approve(self, pid, actor="operator", _locked=False):
         def run():

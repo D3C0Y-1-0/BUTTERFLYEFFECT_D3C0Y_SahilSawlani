@@ -174,6 +174,15 @@ export function WhyView() {
           </tbody></table>
           <div className="tip">{p.note} Measured on the simulator, with the same attacker that generates the test attacks, so it is an upper bound on real-world accuracy.</div></>; })() : <div className="tip">Run <b>python backend/experiments.py E21</b>.</div>}
       
+        {E.E22?.result && E.E23?.result && (() => { const a = E.E22.result.regimes["with traffic-level correction"], b = E.E22.result.regimes["without (old behaviour)"], sp = E.E23.result.runs; const si = sp["independent meters on a separate path"], sn = sp["control network only"];
+          const fi = (r: any) => Object.values<any>(r).reduce((x, v) => x + v.false_incidents, 0);
+          return <>
+            <b style={{ fontSize: 12.5 }}>Where the first version was weak, and what changed</b>
+            <div className="tiles">
+              <div className="tile"><b>{fi(a)} vs {fi(b)}</b><span>false alarms in 12 calm days of non-textbook traffic (daily swing, bursts), with vs without the traffic-level correction</span><small>4 regimes x 3 days. Synthetic, not real captures.</small></div>
+              <div className="tile"><b>{si.median_minutes_to_alarm} min vs {sn.median_minutes_to_alarm} min</b><span>time to catch a careful telemetry forger, with vs without meters on a separate path</span><small>{si.attacks_that_reached_the_pump} attacks that reached the pump</small></div>
+            </div>
+            <div className="tip">Forged traffic can no longer make ATHENA cut hospital-adjacent equipment by itself: without physical proof a person must confirm, automatic steps are rate-limited, and "nobody answered" pages again instead of acting. Needs independent meters on site, and real traffic captures to confirm the false-alarm numbers.</div></>; })()}
       </Box>
 
       <Box id="why_works" title="Why ATHENA works" icon="sparkle" value="5 reasons" defaultOpen>

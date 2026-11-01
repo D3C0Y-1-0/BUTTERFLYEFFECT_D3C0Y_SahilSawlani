@@ -5,9 +5,10 @@ Every request passes: rate limit -> authentication (signed token) -> role check 
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
 import json
 import os
-import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -34,7 +35,7 @@ state: dict = {}
 
 @asynccontextmanager
 async def lifespan(app):
-    rt = Runtime(sync=False)
+    rt = Runtime(sync=False, persist=True)
     state.update(rt=rt, auth=Auth(), rl=RateLimiter(), ag=AirGap(), approvals={})
     rt.start()
     state["lab"] = LabService(rt)
@@ -215,32 +216,16 @@ def tamper(u=Depends(user_for("tamper"))):
 @app.get("/api/security")
 def security(u=Depends(user_for("security"))):
     rt, rl = state["rt"], state["rl"]
+    from . import selfcheck
     return dict(
-        controls=[
-            dict(id="argon2", name="Passwords hashed with Argon2id", ok=True, ref="Guidelines 6.2"),
-            dict(id="mfa", name="TOTP multi-factor authentication on every account", ok=True, ref="Guidelines 6.1"),
-            dict(id="token", name="Signed, expiring session tokens (HMAC-SHA256, 1 h)", ok=True, ref="Guidelines 6.7"),
-            dict(id="rbac", name="Role-based access control, checked on every request", ok=True, ref="Guidelines 6.7 / 4.1 least privilege"),
-            dict(id="lock", name="Account lock-out after 5 failed logins", ok=True, ref="Guidelines 6.2"),
-            dict(id="rate", name="Rate limiting / quotas on the API", ok=True, ref="Guidelines 13", blocked=rl.blocked),
-            dict(id="valid", name="Strict input validation (pydantic) on every route; unknown IDs rejected", ok=True, ref="Guidelines 13 (BOLA/BFLA/SSRF list)"),
-            dict(id="headers", name="CSP, X-Frame-Options, nosniff, no-store, Referrer-Policy", ok=True, ref="Guidelines 13"),
-            dict(id="schema", name="No public API schema / docs endpoint (inventory hygiene)", ok=True, ref="Guidelines 13 improper inventory mgmt"),
-            dict(id="chain", name="Hash-chained tamper-evident Black Box Log", ok=rt.bb.verify()["ok"], ref="Guidelines 8.5"),
-            dict(id="signed", name="Ed25519-signed air-gap snapshots with replay protection", ok=True, ref="Guidelines 4.4 (air gap / data diode)"),
-            dict(id="twop", name="Two-person approval for high-impact actions", ok=True, ref="Guidelines 10.1 human authority"),
-            dict(id="twin", name="Safety Check: every automatic action is simulated before it runs", ok=True, ref="Guidelines 4.2"),
-            dict(id="feed", name="Threat-feed integrity: dated snapshots + sanity check", ok=True, ref="Guidelines 16"),
-            dict(id="tls", name="TLS on the transport", ok=os.environ.get("DECOY_TLS") == "1", ref="Guidelines 5", note="Local demo runs plain HTTP; start with DECOY_TLS=1 for HTTPS. In deployment TLS terminates at the reverse proxy."),
-            dict(id="mtls", name="mutual TLS between services", ok=False, ref="Guidelines 6.4", note="Design-level: demo is a single process; deployment uses mTLS between api / engine / worker."),
-        ],
+        controls=selfcheck.run(rt, app, state["auth"], rl),
         chain=rt.bb.verify(), airgap=dict(version=state["ag"].version, accepted=state["ag"].accepted, rejected=state["ag"].rejected), user=u,
         tests=json.loads((DATA / "security_tests.json").read_text()) if (DATA / "security_tests.json").exists() else None)
 
 
 # ---------------------------------------------------------------- writes
 class Attack(BaseModel):
-    mode: Literal["standard", "zero_day", "spoof", "wear", "insider", "ddos", "swarm", "blitz", "group"] = "standard"
+    mode: Literal["standard", "zero_day", "spoof", "wear", "insider", "ddos", "swarm", "blitz", "group", "spoof_coherent"] = "standard"
     entry: str | None = Field(default=None, pattern=ID)
     goal: str | None = Field(default=None, pattern=ID)
     stealth: float | None = Field(default=None, ge=1.0, le=12.0)
@@ -327,13 +312,18 @@ def reset(u=Depends(user_for("reset"))):
     return dict(ok=True)
 
 
+def needs_two(steps) -> bool:
+    """High-impact = switches off service or costs a lot of operator effort: a second, different person must approve."""
+    return any(s["service"] > 0 or s["ops"] > 800 for s in steps)
+
+
 @app.post("/api/proposal/{pid}/approve")
 def approve(pid: str = PathParam(pattern=ID), u=Depends(user_for("approve"))):
     rt = state["rt"]
     prop = next((p for p in rt.proposals if p["id"] == pid), None)
     if not prop or prop["status"] != "pending":
         raise HTTPException(404, "no pending proposal")
-    high = any(s["service"] > 0 or s["ops"] > 800 for s in prop["steps"])
+    high = needs_two(prop["steps"])
     ap = state["approvals"].setdefault(pid, set())
     ap.add(u["sub"])
     if high and len(ap) < 2:
@@ -472,28 +462,62 @@ def ag_import(b: AGDoc, u=Depends(user_for("airgap_import"))):
 
 
 # ---------------------------------------------------------------- websocket
+WS_MAX, WS_PER_USER = 40, 4
+_ws_open: dict = {}
+_frames: dict = {}
+_frame_lock = threading.Lock()
+
+
 @app.websocket("/ws")
-async def ws(sock: WebSocket, token: str = Query(max_length=600)):
-    d = state["auth"].verify(token)
+async def ws(sock: WebSocket):
+    """The session token is sent as the FIRST message (so it never appears in a URL, a proxy log or browser history). At most WS_MAX sockets overall and WS_PER_USER per person;
+    every client of a role shares one snapshot built at most four times a second, so more viewers cannot mean more work under the simulation lock."""
+    await sock.accept()
+    try:
+        first = json.loads(await asyncio.wait_for(sock.receive_text(), timeout=5))
+        token = first.get("token", "") if isinstance(first, dict) else ""
+    except Exception:
+        await sock.close(code=4401)
+        return
+    d = state["auth"].verify(token if isinstance(token, str) and len(token) <= 600 else "")
     if not d:
         await sock.close(code=4401)
         return
-    await sock.accept()
+    if sum(_ws_open.values()) >= WS_MAX or _ws_open.get(d["sub"], 0) >= WS_PER_USER:
+        await sock.close(code=4429)
+        return
+    _ws_open[d["sub"]] = _ws_open.get(d["sub"], 0) + 1
     rt = state["rt"]
     role = "analyst" if state["auth"].allowed(d["role"], "adversary_view") else "executive"
     loop = asyncio.get_running_loop()
     try:
         while True:
             try:   # built in a worker thread: waiting for the simulation lock must never freeze the web server
-                text = await loop.run_in_executor(None, _frame, rt, role)
+                text = await loop.run_in_executor(None, _frame_shared, rt, role)
                 await sock.send_text(text)
             except (WebSocketDisconnect, RuntimeError):
                 return
             except Exception as e:   # one bad frame must not end the stream
                 rt.health["last_restart"] = f"stream: {type(e).__name__}: {e}"
+            if state["auth"].verify(token) is None:      # the session expired: end the stream, the page signs in again
+                await sock.close(code=4401)
+                return
             await asyncio.sleep(0.25 / max(rt.speed, 0.25) if rt.speed < 4 else 0.12)
     except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
         return
+    finally:
+        _ws_open[d["sub"]] = max(0, _ws_open.get(d["sub"], 1) - 1)
+
+
+def _frame_shared(rt, role):
+    now = time.time()
+    with _frame_lock:
+        c = _frames.get(role)
+        if c and now - c[0] < 0.2:
+            return c[1]
+        text = _frame(rt, role)
+        _frames[role] = (now, text)
+        return text
 
 
 def _frame(rt, role):

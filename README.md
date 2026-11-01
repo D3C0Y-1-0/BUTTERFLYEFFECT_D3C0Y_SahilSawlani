@@ -57,12 +57,19 @@ experiments/        targets.md (written before any experiment ran)
 ```powershell
 .\.venv\Scripts\python backend\data_fetch.py all        # refresh NVD/EPSS/KEV/OSM snapshots
 .\.venv\Scripts\python backend\precompute.py            # exact attack-outcome table (cached)
-.\.venv\Scripts\python backend\experiments.py           # E1-E13  -> data/experiments.json
+.\.venv\Scripts\python backend\experiments.py           # E1-E13 -> data/experiments.json (E17-E23: python backend\experiments.py E22 E23 ...)
 .\.venv\Scripts\python backend\security_tests.py        # E14    -> data/security_tests.json
-.\.venv\Scripts\python -m pytest backend\tests -q       # 51 What-if Lab tests (engine edge cases, REST API, scenarios, ML pipeline)
+.\.venv\Scripts\python -m pytest backend\tests -q       # 83 tests (What-if Lab, attacker/defender separation, and the hardening tests: forged traffic, tamper-evident log, replay, bounded growth, independent sensing)
 .\.venv\Scripts\python backend\train_ppo.py 100 2048 1   # PPO zero-day responder, seed 1 (run seeds 1-4 in parallel, ~17 min each)
 .\.venv\Scripts\python backend\eval_ppo.py 300         # E15/E16: validation selection + paired held-out test
 ```
 
+## Where to keep the secrets (production)
+The log key, the model-cache key and the air-gap signing key live in `%USERPROFILE%\.athena` (override with `ATHENA_KEY_DIR`), **not** in the project folder. The Black Box Log writes an external anchor to `ATHENA_ANCHOR_PATH` (default `.athena\log_anchor.jsonl`); in production point it at a write-once or off-box target (WORM bucket, remote syslog), otherwise someone with the disk and the key can rewrite history. The raw-event vault is gzipped by day and capped at `ATHENA_VAULT_MAX_GB` (default 2).
+
 ## Honest limits
+- **Telemetry forgery.** A careful forger who replays a consistent healthy plant is invisible to checks that only use the control network. ATHENA catches it only if independent meters on a separate path exist (the hospital's own meter, a separate utility feed). In the simulator this cut the time to alarm from about 8.5 hours to under an hour; whether such meters exist is a site question.
+- **Traffic.** False-alarm numbers come from synthetic traffic with swings and bursts, not real captures. Real ICS captures are still needed.
+- **Hospital-adjacent cuts** need a person unless a physical reading or a second device backs the alarm; automatic steps are rate-limited. This is a safety choice that can slow a real response.
+- **Not built:** mutual TLS, SOC/ticketing integration, deep inspection of Modbus/DNP3/IEC-104, high availability and key rotation, a hardware security module.
 Everything is validated inside a simulation; no public dataset links devices, vulnerabilities, links and real outcomes. Mumbai names are scenario context, **not** claims about real vulnerabilities at those sites. Assumptions that cannot be sourced are listed in `assumptions.py` and shown in the app.

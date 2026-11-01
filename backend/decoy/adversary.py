@@ -18,6 +18,7 @@ MODES = {
     "standard": "Skilled attacker using known exploits",
     "zero_day": "Unknown exploit (no CVE signature)",
     "spoof": "Controller takeover with telemetry spoofing",
+    "spoof_coherent": "Controller takeover that replays a consistent healthy plant (levels, flows and states all agree)",
     "wear": "Breaker wear attack (rapid cycling)",
     "insider": "Insider already inside the network (stolen login)",
     "ddos": "DDoS flood on the public-facing services",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import hmac
 import json
 import pickle
 import threading
@@ -11,6 +12,7 @@ import time
 
 import numpy as np
 
+from .blackbox import load_key
 from .city import DATA
 from .lab import (COST, FEATURES, FNAMES, GROUPS, BEST, MODEL_VERSION, RULES, Controls, LabDB, RiskModel, adjacency, asset_features, dependents, eff_weak,
                   graph_features, likelihood, model_from_ward, reachable, service_loss, simulate_compromise, vec, vulnerable_service)
@@ -93,7 +95,7 @@ class LabService:
         return np.array(X), np.array(y), np.array(g)
 
     def _cache_key(self, n_variants, seed):
-        h = hashlib.md5(json.dumps(self.model["assets"], sort_keys=True, default=str).encode("utf-8")).hexdigest()
+        h = hashlib.sha256(json.dumps(self.model["assets"], sort_keys=True, default=str).encode("utf-8")).hexdigest()
         return f"{MODEL_VERSION}|{n_variants}|{seed}|{h}"
 
     def train(self, n_variants=260, seed=11):
@@ -105,10 +107,12 @@ class LabService:
             blob = None
             try:
                 if path.exists():
-                    with open(path, "rb") as fh:
-                        b = pickle.load(fh)
-                    if b.get("key") == key:
-                        blob = b
+                    raw = path.read_bytes()      # a pickle can run code when loaded, so it is only loaded if it carries our HMAC (key kept outside the project folder)
+                    mac, body = raw[:32], raw[32:]
+                    if hmac.compare_digest(mac, hmac.new(load_key("model_cache.key"), body, hashlib.sha256).digest()):
+                        b = pickle.loads(body)  # nosec B301 - authenticated above
+                        if b.get("key") == key:
+                            blob = b
             except Exception:
                 blob = None
             if blob is not None:
@@ -129,8 +133,8 @@ class LabService:
                 self.state = dict(status="ready", error=None, meta=meta, rules=RULES, features=[dict(name=n, source=s, direction=d) for n, s, d in FEATURES])
                 (DATA / "lab_model_meta.json").write_text(json.dumps(self.state["meta"]), encoding="utf-8")
             try:
-                with open(path, "wb") as fh:
-                    pickle.dump(dict(key=key, risk=self.risk, meta=meta, ref_impact=self.ref_impact, ref_risk=self.ref_risk), fh)
+                body = pickle.dumps(dict(key=key, risk=self.risk, meta=meta, ref_impact=self.ref_impact, ref_risk=self.ref_risk))
+                path.write_bytes(hmac.new(load_key("model_cache.key"), body, hashlib.sha256).digest() + body)
             except Exception:
                 pass
         except Exception as e:   # surfaced by GET /model; never crashes the server

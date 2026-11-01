@@ -199,7 +199,12 @@ class LiveTwin:
         ops10 = sum(1 for t in self.breaker_ops if m - t <= 10)
         rep["BRK_OPS_10M"] = float(ops10)
         truth["BRK_OPS_10M"] = float(ops10)
-        self.last = dict(reported=rep, truth=truth)
+        # INDEPENDENT PATH: tank-level sensors on their own radio gateway and the hospitals' own inlet meters. They are not on the SCADA/PLC network, so an attacker who controls
+        # the control network (and can therefore forge every reading above) cannot forge these. Their own noise is a little larger (cheaper sensors).
+        ind = {f"IND_{t}_level": truth[f"{t}_level"] + n(0.05) for t in ("T1", "T2")}
+        for h in self.W["hospitals"]:
+            ind[f"IND_{h}_FLOW"] = truth[f"{h}_FLOW"] + n(0.0002)
+        self.last = dict(reported=rep, truth=truth, independent=ind)
         return self.last
 
     def services(self):

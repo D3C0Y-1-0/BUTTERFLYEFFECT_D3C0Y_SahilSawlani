@@ -72,6 +72,9 @@ class Auth:
             if not ok:
                 n = self.fail.get(key, (0, 0))[0] + 1
                 self.fail[key] = (n, time.time())
+                if len(self.fail) > 2000:      # forget attempts older than the lock-out window so the table cannot grow forever
+                    now = time.time()
+                    self.fail = {k: v for k, v in self.fail.items() if now - v[1] < 60}
                 return None, "invalid credentials or MFA code"
             self.fail.pop(key, None)
         return self.token(user, u["role"]), None
@@ -100,16 +103,32 @@ class Auth:
 
 
 class RateLimiter:
-    def __init__(self, rate=25.0, burst=80):
-        self.rate, self.burst = rate, burst
+    """Token bucket per client. A bucket that has fully refilled carries no information, so it is dropped; the table is also hard-capped so a flood of fake client
+    addresses cannot grow memory without bound (oldest buckets go first)."""
+
+    def __init__(self, rate=25.0, burst=80, max_clients=5000):
+        self.rate, self.burst, self.max_clients = rate, burst, max_clients
         self.b = {}
         self.lock = threading.Lock()
         self.blocked = 0
+        self.calls = 0
+        self.evicted = 0
+
+    def _sweep(self, now):
+        idle = self.burst / self.rate
+        for k in [k for k, (t, last) in self.b.items() if now - last >= idle]:
+            del self.b[k]
+        while len(self.b) > self.max_clients:       # dicts keep insertion order: drop the oldest
+            del self.b[next(iter(self.b))]
+            self.evicted += 1
 
     def allow(self, key):
         now = time.time()
         with self.lock:
-            tok, last = self.b.get(key, (self.burst, now))
+            self.calls += 1
+            if self.calls % 500 == 0 or len(self.b) > self.max_clients:
+                self._sweep(now)
+            tok, last = self.b.pop(key, (self.burst, now))       # pop + reinsert keeps recently active clients at the end
             tok = min(self.burst, tok + (now - last) * self.rate)
             if tok < 1:
                 self.b[key] = (tok, now)
@@ -120,22 +139,51 @@ class RateLimiter:
 
 
 class AirGap:
-    """Signed one-way snapshot: export from the connected side, import on the isolated side. Ed25519 + monotonic version."""
+    """Signed one-way snapshot: export from the connected side, import on the isolated side. Ed25519 + monotonic version.
+    The signing key and the version counters live in KEY_DIR (outside the project folder) and survive a restart, so an already-accepted snapshot cannot be replayed
+    after a reboot. Honest limit: in this demo both sides are one process; a real deployment keeps the signing key in an HSM on the connected side and only the
+    public key plus the counter on the isolated side."""
 
-    def __init__(self):
-        kf = DATA / "airgap_ed25519.key"
-        if kf.exists():
-            self.sk = signing.SigningKey(kf.read_bytes())
+    def __init__(self, key_dir=None, persist=True):
+        from .blackbox import KEY_DIR
+        self.dir = key_dir or KEY_DIR
+        self.persist = persist
+        self.state_file = self.dir / "airgap_state.json"
+        if persist:
+            self.dir.mkdir(parents=True, exist_ok=True)
+            kf = self.dir / "airgap_ed25519.key"
+            old = DATA / "airgap_ed25519.key"          # migrate a key an older build left next to the app
+            if not kf.exists() and old.exists():
+                kf.write_bytes(old.read_bytes())
+                old.unlink()
+            if kf.exists():
+                self.sk = signing.SigningKey(kf.read_bytes())
+            else:
+                self.sk = signing.SigningKey.generate()
+                kf.write_bytes(bytes(self.sk))
         else:
             self.sk = signing.SigningKey.generate()
-            kf.write_bytes(bytes(self.sk))
         self.vk = self.sk.verify_key
         self.version = 0
+        self.last_imported = 0
         self.accepted = 0
         self.rejected = 0
+        if persist and self.state_file.exists():
+            try:
+                st = json.loads(self.state_file.read_text())
+                self.version, self.last_imported = int(st.get("version", 0)), int(st.get("last_imported", 0))
+            except (ValueError, OSError):
+                pass
+
+    def _save(self):
+        if self.persist:
+            tmp = self.state_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(dict(version=self.version, last_imported=self.last_imported)))
+            os.replace(tmp, self.state_file)
 
     def export(self, payload: dict):
         self.version += 1
+        self._save()
         body = dict(payload, version=self.version, issued=int(time.time()))
         raw = json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
         sig = self.sk.sign(raw).signature
@@ -150,11 +198,12 @@ class AirGap:
             if bytes(vk) != bytes(self.vk):
                 raise BadSignatureError("unknown signer")
             vk.verify(raw, base64.b64decode(doc["signature"]))
-            if doc["payload"]["version"] <= getattr(self, "last_imported", 0):
+            if doc["payload"]["version"] <= self.last_imported:
                 raise BadSignatureError("replayed or older version")
         except Exception as e:
             self.rejected += 1
             return False, f"REJECTED: {e}"
         self.last_imported = doc["payload"]["version"]
+        self._save()
         self.accepted += 1
         return True, "ACCEPTED: signature, hash and version counter valid"

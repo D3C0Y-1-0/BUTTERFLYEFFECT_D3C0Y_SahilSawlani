@@ -180,7 +180,7 @@ export function FixView() {
 }
 
 /* ================================================================== DEFEND */
-const ATTACKS: [string, string][] = [["standard", "Known exploit from the internet"], ["spoof", "Fake sensor readings"], ["wear", "Breaker wear"], ["insider", "Insider already inside the network"], ["swarm", "Many small attacks (each below the alarm line)"], ["blitz", "Fast and loud attacker (races the defence)"], ["ddos", "DDoS flood on the public services"], ["group", "Coordinated group: 3 attackers + a flood"]];
+const ATTACKS: [string, string][] = [["standard", "Known exploit from the internet"], ["spoof", "Fake sensor readings"], ["spoof_coherent", "Careful forger: fake readings that all agree"], ["wear", "Breaker wear"], ["insider", "Insider already inside the network"], ["swarm", "Many small attacks (each below the alarm line)"], ["blitz", "Fast and loud attacker (races the defence)"], ["ddos", "DDoS flood on the public services"], ["group", "Coordinated group: 3 attackers + a flood"]];
 const STAGE_LABELS = ["Detected", "Predicted", "Cut", "Verified", "Recovered"]; const STAGE_KEYS = ["Detected", "Predicted route", "Cut made", "Verified", "Recovered"];
 
 export function DefendView() {
@@ -226,6 +226,7 @@ export function DefendView() {
         </Box>)}
       {props.map((p: any) => (
         <Box key={p.id} id={"prop" + p.id} title="Needs your OK" icon="check" value={`saves ${k(Math.max(0, p.observe_J - p.plan_J))}`} tone="watch" kind="warm" defaultOpen>
+          {p.held && <div className="tip" style={{ borderColor: "#E11D48" }}><b>Held for a person.</b> {p.held}</div>}
           {p.steps.map((s: any, i: number) => <div key={i} className="row" style={{ fontSize: 12.5, cursor: "pointer" }} onClick={() => showTarget(st, s.target)}><span className="num-chip aqua" style={{ width: 20, height: 20, fontSize: 11 }}>{i + 1}</span><span className="grow"><Move label={s.label} detail={<>Service cost {k(s.service)} · disruption {k(s.ops)}{s.safety?.note ? " · " + s.safety.note : ""}</>} /></span>{s.safety?.ok && <span className="pill safe">safe</span>}</div>)}
           <div className="grid3"><Stat v={k(p.observe_J)} l="do nothing" color={C.terra} /><Stat v={k(p.plan_J)} l="this plan" color={C.aquaD} /><Stat v={k(p.isolate_all_J)} l="cut everything" color={C.apricot} /></div>
           {can(role, "operator") && <div className="row"><button className="btn heal grow" onClick={() => { showTargets(st, p.steps.map((s: any) => s.target)); api(`/api/proposal/${p.id}/approve`, { method: "POST" }).then((r) => toast(r.status === "awaiting_second" ? "warn" : "ok", r.status === "awaiting_second" ? "A second person must approve" : "Plan applied")); }}>Approve</button><button className="btn danger" onClick={() => api(`/api/proposal/${p.id}/reject`, { method: "POST" })}>Reject</button></div>}

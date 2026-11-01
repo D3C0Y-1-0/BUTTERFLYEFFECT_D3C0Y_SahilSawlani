@@ -25,6 +25,9 @@ ASSUMPTIONS = {
     "mfa_factor": {"value": 0.12, "why": "Residual success probability of VPN credential abuse once MFA is enforced"},
     "fix_cost": {"virtual_patch": 1.0, "close_link": 1.5, "mfa_vendor": 2.0, "rotate_creds": 1.0, "firmware_patch": 6.0,
                  "monitoring": 3.0, "manual_fallback": 4.0, "why": "Relative effort units (CPG 2.0 style cost/ease), 1 = an hour of an engineer"},
+    "decoy_lure_p": {"value": 0.6, "why": "Chance an attacker next to a decoy touches it instead of a real device. Invented: no field data. Experiment E13 shows decoys did NOT improve outcomes, so this number is not relied on for any headline result"},
+    "decoy_trap_p": {"value": 0.85, "why": "Chance a touched decoy actually holds the attacker. Invented, see decoy_lure_p"},
+    "decoy_alarm_p": {"value": 0.9, "why": "Alarm level when a decoy is touched and nothing else is odd. Not 0.995: authorised vulnerability scanners and misconfigured devices also touch decoys, so a lone decoy touch asks a person before anything is cut"},
     "lambda_downtime": {"value": 1.0, "why": "Exchange rate between effort units and household-hours of outage in the planner"},
 }
 

@@ -599,7 +599,54 @@ def e21(ctx, n=240):
     return {"E21": dict(claim="Attacks can be predicted before they happen", target="top-10 forecast contains a device the attacker really takes in >= 70% of attacks", result=res, met=bool((res["top10_hit_pct"] or 0) >= 70))}
 
 
-REG = {"E1": e1_e2, "E2": e1_e2, "E3": e3_e4, "E4": e3_e4, "E5": e5, "E6": e6, "E7": e7, "E8": e8, "E9": e9_e12_e13, "E12": e9_e12_e13, "E13": e9_e12_e13, "E10": e10, "E11": e11, "E17": e17, "E18": e18, "E19": e19_e20, "E20": e19_e20, "E21": e21}
+
+def e22(ctx, days=3):
+    """E22: false alarms when traffic is NOT textbook Poisson. Calm cities (no attacker at all) under a daily swing and bursts, with and without the traffic-level correction."""
+    from decoy.runtime import Runtime
+    rt = ctx.get("rt") or Runtime(sync=True, n_samples=2000, verbose=False)
+    ctx["rt"] = rt
+    rt.autonomy, rt.autopilot = "suggest", False
+    REG = {"plain Poisson": (0.0, None), "daily swing +/-60%": (0.6, None), "bursty": (0.0, 2.0), "bursty + daily swing": (0.6, 2.0)}
+    out = {}
+    for use_scale in (True, False):
+        rows = {}
+        for name, (sw, bk) in REG.items():
+            rt.reset(900); rt.traffic.set_regime(sw, bk); rt.watchdog.use_scale = use_scale
+            hi = 0; n = 4320 if days == 3 else days * 1440
+            for _ in range(n):
+                rt.tick(); hi += rt.last_p > 0.5
+            rows[name] = dict(false_incidents=len(rt.incidents), minutes_above_half_pct=round(100 * hi / n, 2))
+        out["with traffic-level correction" if use_scale else "without (old behaviour)"] = rows
+    rt.traffic.set_regime(); rt.watchdog.use_scale = True
+    worst = max(v["false_incidents"] for v in out["with traffic-level correction"].values())
+    return {"E22": dict(claim="False alarms stay low on traffic that is not textbook Poisson", target="<= 1 false incident in 3 calm days under every regime", result=dict(days=days, regimes=out, note="Calm city, no attacker. 'False incident' = an incident opened. Synthetic regimes, NOT real captures; real captures (e.g. public ICS pcaps) are still needed."), met=bool(worst <= 1))}
+
+
+def e23(ctx):
+    """E23: a coherent telemetry spoof (the attacker replays a consistent healthy plant). How long until an alarm, with and without an independent sensing path."""
+    from decoy.runtime import Runtime
+    rt = ctx.get("rt") or Runtime(sync=True, n_samples=2000, verbose=False)
+    ctx["rt"] = rt
+    rt.autonomy, rt.autopilot = "suggest", False
+    res = {}
+    for label, ind in (("independent meters on a separate path", True), ("control network only", False)):
+        times, lost = [], []
+        for k, goal in enumerate(["PLC_PS1", "PLC_PS2"] * 4):
+            rt.reset(1200 + k); rt.watchdog.use_independent = ind
+            rt.launch_attack("spoof_coherent", "SCADA_WEB", goal, 9.0, actor="experiment"); t0 = rt.live.minute; first = None
+            for _ in range(14 * 60):
+                rt.tick()
+                if first is None and any(i["physics"] for i in rt.incidents): first = rt.live.minute - t0
+            if rt.adv.campaigns[0].acted:      # only count runs where the attacker really reached its goal and forged the readings
+                times.append(first); lost.append(rt.live.services()["cum"]["hh_h"])
+        seen = [t for t in times if t is not None]
+        res[label] = dict(attacks_that_reached_the_pump=len(times), alarmed=len(seen), median_minutes_to_alarm=float(np.median(seen)) if seen else None, never_alarmed=len(times) - len(seen), mean_household_hours_lost=round(float(np.mean(lost))))
+    rt.watchdog.use_independent = True
+    a, b = res["independent meters on a separate path"], res["control network only"]
+    return {"E23": dict(claim="A coherent telemetry spoof is only caught early when a second, independent sensing path exists", target="alarm within 2 h with the independent path", result=dict(runs=res, note="Detection only; no response was applied, so the loss is what an unanswered attack does. Requires real independent meters (the hospital's own, or a separate utility feed); this is an assumption to be validated on site."), met=bool(a["median_minutes_to_alarm"] is not None and a["median_minutes_to_alarm"] <= 120))}
+
+
+REG = {"E1": e1_e2, "E2": e1_e2, "E3": e3_e4, "E4": e3_e4, "E5": e5, "E6": e6, "E7": e7, "E8": e8, "E9": e9_e12_e13, "E12": e9_e12_e13, "E13": e9_e12_e13, "E10": e10, "E11": e11, "E17": e17, "E18": e18, "E19": e19_e20, "E20": e19_e20, "E21": e21, "E22": e22, "E23": e23}
 
 
 def main():

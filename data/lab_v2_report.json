@@ -1,0 +1,456 @@
+{
+ "config": {
+  "worlds": 24,
+  "configs_per_world": 250,
+  "tuning_candidates": 16,
+  "rows_total": 162000,
+  "train_rows": 118800,
+  "seed": 2026
+ },
+ "data_statement": "Real inputs: NVD/EPSS/KEV + inventory. Labels: Monte-Carlo threat model (synthetic). Augmentation: normalised jitter of the real inputs, labels recomputed. Surrogate accuracy, not real-world accuracy.",
+ "tuning": [
+  {
+   "params": {
+    "learning_rate": 0.06,
+    "max_depth": null,
+    "min_samples_leaf": 50,
+    "l2_regularization": 1.0,
+    "max_leaf_nodes": 63,
+    "max_iter": 200
+   },
+   "cv_mae": 0.0177,
+   "cv_spearman": 0.8927,
+   "cv_mae_sd": 0.0002
+  },
+  {
+   "params": {
+    "learning_rate": 0.06,
+    "max_depth": 6,
+    "min_samples_leaf": 20,
+    "l2_regularization": 1.0,
+    "max_leaf_nodes": 31,
+    "max_iter": 200
+   },
+   "cv_mae": 0.0178,
+   "cv_spearman": 0.8919,
+   "cv_mae_sd": 0.0002
+  },
+  {
+   "params": {
+    "learning_rate": 0.06,
+    "max_depth": 6,
+    "min_samples_leaf": 50,
+    "l2_regularization": 0.0,
+    "max_leaf_nodes": 63,
+    "max_iter": 800
+   },
+   "cv_mae": 0.0178,
+   "cv_spearman": 0.8918,
+   "cv_mae_sd": 0.0002
+  },
+  {
+   "params": {
+    "learning_rate": 0.1,
+    "max_depth": 8,
+    "min_samples_leaf": 20,
+    "l2_regularization": 1.0,
+    "max_leaf_nodes": 31,
+    "max_iter": 400
+   },
+   "cv_mae": 0.0178,
+   "cv_spearman": 0.8917,
+   "cv_mae_sd": 0.0002
+  },
+  {
+   "params": {
+    "max_iter": 500,
+    "learning_rate": 0.04,
+    "max_depth": 6,
+    "min_samples_leaf": 8
+   },
+   "cv_mae": 0.0179,
+   "cv_spearman": 0.8915,
+   "cv_mae_sd": 0.0002
+  },
+  {
+   "params": {
+    "learning_rate": 0.02,
+    "max_depth": 6,
+    "min_samples_leaf": 8,
+    "l2_regularization": 10.0,
+    "max_leaf_nodes": 31,
+    "max_iter": 800
+   },
+   "cv_mae": 0.0179,
+   "cv_spearman": 0.8913,
+   "cv_mae_sd": 0.0002
+  },
+  {
+   "params": {
+    "learning_rate": 0.04,
+    "max_depth": 6,
+    "min_samples_leaf": 50,
+    "l2_regularization": 10.0,
+    "max_leaf_nodes": 63,
+    "max_iter": 800
+   },
+   "cv_mae": 0.0179,
+   "cv_spearman": 0.8917,
+   "cv_mae_sd": 0.0002
+  },
+  {
+   "params": {
+    "learning_rate": 0.1,
+    "max_depth": null,
+    "min_samples_leaf": 20,
+    "l2_regularization": 0.0,
+    "max_leaf_nodes": 15,
+    "max_iter": 800
+   },
+   "cv_mae": 0.018,
+   "cv_spearman": 0.8898,
+   "cv_mae_sd": 0.0002
+  },
+  {
+   "params": {
+    "learning_rate": 0.02,
+    "max_depth": 6,
+    "min_samples_leaf": 120,
+    "l2_regularization": 1.0,
+    "max_leaf_nodes": 63,
+    "max_iter": 400
+   },
+   "cv_mae": 0.018,
+   "cv_spearman": 0.8909,
+   "cv_mae_sd": 0.0002
+  },
+  {
+   "params": {
+    "learning_rate": 0.1,
+    "max_depth": 6,
+    "min_samples_leaf": 120,
+    "l2_regularization": 10.0,
+    "max_leaf_nodes": 31,
+    "max_iter": 200
+   },
+   "cv_mae": 0.018,
+   "cv_spearman": 0.8911,
+   "cv_mae_sd": 0.0002
+  },
+  {
+   "params": {
+    "learning_rate": 0.1,
+    "max_depth": null,
+    "min_samples_leaf": 50,
+    "l2_regularization": 0.1,
+    "max_leaf_nodes": 15,
+    "max_iter": 400
+   },
+   "cv_mae": 0.0181,
+   "cv_spearman": 0.8893,
+   "cv_mae_sd": 0.0002
+  },
+  {
+   "params": {
+    "learning_rate": 0.1,
+    "max_depth": null,
+    "min_samples_leaf": 50,
+    "l2_regularization": 10.0,
+    "max_leaf_nodes": 15,
+    "max_iter": 200
+   },
+   "cv_mae": 0.0181,
+   "cv_spearman": 0.8896,
+   "cv_mae_sd": 0.0002
+  },
+  {
+   "params": {
+    "learning_rate": 0.06,
+    "max_depth": 4,
+    "min_samples_leaf": 20,
+    "l2_regularization": 1.0,
+    "max_leaf_nodes": 31,
+    "max_iter": 400
+   },
+   "cv_mae": 0.0183,
+   "cv_spearman": 0.8877,
+   "cv_mae_sd": 0.0002
+  },
+  {
+   "params": {
+    "learning_rate": 0.04,
+    "max_depth": 4,
+    "min_samples_leaf": 8,
+    "l2_regularization": 0.0,
+    "max_leaf_nodes": 15,
+    "max_iter": 800
+   },
+   "cv_mae": 0.0183,
+   "cv_spearman": 0.8878,
+   "cv_mae_sd": 0.0001
+  },
+  {
+   "params": {
+    "learning_rate": 0.06,
+    "max_depth": 4,
+    "min_samples_leaf": 20,
+    "l2_regularization": 0.0,
+    "max_leaf_nodes": 31,
+    "max_iter": 200
+   },
+   "cv_mae": 0.0183,
+   "cv_spearman": 0.8877,
+   "cv_mae_sd": 0.0002
+  },
+  {
+   "params": {
+    "learning_rate": 0.04,
+    "max_depth": 4,
+    "min_samples_leaf": 8,
+    "l2_regularization": 10.0,
+    "max_leaf_nodes": 15,
+    "max_iter": 400
+   },
+   "cv_mae": 0.0183,
+   "cv_spearman": 0.8879,
+   "cv_mae_sd": 0.0002
+  }
+ ],
+ "chosen": {
+  "learning_rate": 0.06,
+  "max_depth": null,
+  "min_samples_leaf": 50,
+  "l2_regularization": 1.0,
+  "max_leaf_nodes": 63,
+  "max_iter": 200
+ },
+ "chosen_was_baseline_params": false,
+ "test": {
+  "test_configs": {
+   "A. v1.1 (real world, 260 configs)": {
+    "rows": 29700,
+    "mae": 0.0206,
+    "rmse": 0.0297,
+    "r2": 0.7305,
+    "spearman": 0.8664,
+    "positive_rate": 0.101,
+    "precision": 0.6403,
+    "recall": 0.632,
+    "f1": 0.6361,
+    "auc": 0.9514,
+    "avg_precision": 0.6379,
+    "top5_overlap": 0.7156
+   },
+   "B. v1.1 settings on the big data": {
+    "rows": 29700,
+    "mae": 0.0179,
+    "rmse": 0.0265,
+    "r2": 0.7861,
+    "spearman": 0.889,
+    "positive_rate": 0.101,
+    "precision": 0.681,
+    "recall": 0.6755,
+    "f1": 0.6782,
+    "auc": 0.9603,
+    "avg_precision": 0.7229,
+    "top5_overlap": 0.7282
+   },
+   "C. tuned on the big data": {
+    "rows": 29700,
+    "mae": 0.0177,
+    "rmse": 0.0263,
+    "r2": 0.7887,
+    "spearman": 0.8901,
+    "positive_rate": 0.101,
+    "precision": 0.6842,
+    "recall": 0.6772,
+    "f1": 0.6807,
+    "auc": 0.9606,
+    "avg_precision": 0.7246,
+    "top5_overlap": 0.7296
+   },
+   "baseline: CVSS only": {
+    "spearman": 0.1516
+   }
+  },
+  "test_configs_real_world_only": {
+   "A. v1.1 (real world, 260 configs)": {
+    "rows": 1296,
+    "mae": 0.015,
+    "rmse": 0.023,
+    "r2": 0.8151,
+    "spearman": 0.8997,
+    "positive_rate": 0.1,
+    "precision": 0.695,
+    "recall": 0.7538,
+    "f1": 0.7232,
+    "auc": 0.9644,
+    "avg_precision": 0.6593,
+    "top5_overlap": 0.7458
+   },
+   "B. v1.1 settings on the big data": {
+    "rows": 1296,
+    "mae": 0.0173,
+    "rmse": 0.0245,
+    "r2": 0.7913,
+    "spearman": 0.8839,
+    "positive_rate": 0.1,
+    "precision": 0.6853,
+    "recall": 0.7538,
+    "f1": 0.7179,
+    "auc": 0.96,
+    "avg_precision": 0.6308,
+    "top5_overlap": 0.7333
+   },
+   "C. tuned on the big data": {
+    "rows": 1296,
+    "mae": 0.0172,
+    "rmse": 0.0244,
+    "r2": 0.7923,
+    "spearman": 0.8838,
+    "positive_rate": 0.1,
+    "precision": 0.6853,
+    "recall": 0.7538,
+    "f1": 0.7179,
+    "auc": 0.9616,
+    "avg_precision": 0.6517,
+    "top5_overlap": 0.7333
+   },
+   "baseline: CVSS only": {
+    "spearman": 0.1578
+   }
+  },
+  "test_worlds": {
+   "A. v1.1 (real world, 260 configs)": {
+    "rows": 13500,
+    "mae": 0.0228,
+    "rmse": 0.031,
+    "r2": 0.6836,
+    "spearman": 0.8505,
+    "positive_rate": 0.1,
+    "precision": 0.5677,
+    "recall": 0.6121,
+    "f1": 0.5891,
+    "auc": 0.9361,
+    "avg_precision": 0.5982,
+    "top5_overlap": 0.6684
+   },
+   "B. v1.1 settings on the big data": {
+    "rows": 13500,
+    "mae": 0.021,
+    "rmse": 0.0288,
+    "r2": 0.7279,
+    "spearman": 0.8825,
+    "positive_rate": 0.1,
+    "precision": 0.583,
+    "recall": 0.6239,
+    "f1": 0.6028,
+    "auc": 0.9383,
+    "avg_precision": 0.632,
+    "top5_overlap": 0.6916
+   },
+   "C. tuned on the big data": {
+    "rows": 13500,
+    "mae": 0.0208,
+    "rmse": 0.0287,
+    "r2": 0.7291,
+    "spearman": 0.8827,
+    "positive_rate": 0.1,
+    "precision": 0.583,
+    "recall": 0.6239,
+    "f1": 0.6028,
+    "auc": 0.9367,
+    "avg_precision": 0.628,
+    "top5_overlap": 0.6924
+   },
+   "baseline: CVSS only": {
+    "spearman": 0.1504
+   }
+  }
+ },
+ "overfitting": {
+  "train": {
+   "rows": 118800,
+   "mae": 0.0177,
+   "rmse": 0.0263,
+   "r2": 0.792,
+   "spearman": 0.8932,
+   "positive_rate": 0.102,
+   "precision": 0.6713,
+   "recall": 0.6659,
+   "f1": 0.6686,
+   "auc": 0.9593,
+   "avg_precision": 0.7205,
+   "top5_overlap": 0.7332
+  },
+  "cv_mean_mae": 0.0177,
+  "cv_mae_sd": 0.0002,
+  "test_configs": {
+   "rows": 29700,
+   "mae": 0.0177,
+   "rmse": 0.0263,
+   "r2": 0.7887,
+   "spearman": 0.8901,
+   "positive_rate": 0.101,
+   "precision": 0.6842,
+   "recall": 0.6772,
+   "f1": 0.6807,
+   "auc": 0.9606,
+   "avg_precision": 0.7246,
+   "top5_overlap": 0.7296
+  },
+  "test_worlds": {
+   "rows": 13500,
+   "mae": 0.0208,
+   "rmse": 0.0287,
+   "r2": 0.7291,
+   "spearman": 0.8827,
+   "positive_rate": 0.1,
+   "precision": 0.583,
+   "recall": 0.6239,
+   "f1": 0.6028,
+   "auc": 0.9367,
+   "avg_precision": 0.628,
+   "top5_overlap": 0.6924
+  },
+  "iterations_used": 187
+ },
+ "learning_curve": [
+  {
+   "train_fraction": 0.1,
+   "train_rows": 11880,
+   "train_mae": 0.0177,
+   "test_configs_mae": 0.0181,
+   "test_worlds_mae": 0.0215
+  },
+  {
+   "train_fraction": 0.25,
+   "train_rows": 29700,
+   "train_mae": 0.0179,
+   "test_configs_mae": 0.0179,
+   "test_worlds_mae": 0.021
+  },
+  {
+   "train_fraction": 0.5,
+   "train_rows": 59400,
+   "train_mae": 0.0177,
+   "test_configs_mae": 0.0178,
+   "test_worlds_mae": 0.0209
+  },
+  {
+   "train_fraction": 1.0,
+   "train_rows": 118800,
+   "train_mae": 0.0176,
+   "test_configs_mae": 0.0177,
+   "test_worlds_mae": 0.0208
+  }
+ ],
+ "verdict": {
+  "better_mae": false,
+  "better_spearman": false,
+  "better_top5": false,
+  "real_world_mae_before": 0.015,
+  "real_world_mae_after": 0.0172
+ },
+ "seconds": 912
+}

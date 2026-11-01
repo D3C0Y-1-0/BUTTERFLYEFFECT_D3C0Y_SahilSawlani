@@ -13,6 +13,7 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPRegressor
 
+from .assumptions import A
 from .twin import LiveTwin
 
 
@@ -48,9 +49,19 @@ class Traffic:
                         lam[i], lam[self.E + i] = r, w
         self.lam = lam
         self.n_keys = 2 * self.E
+        self.swing, self.burst_k, self.peak_h = 0.0, None, 14.0      # traffic regime: daily swing (+/- fraction), burstiness (smaller k = burstier), hour of the daily peak
 
-    def normal(self):
-        return self.rng.poisson(self.lam).astype(float)
+    def set_regime(self, swing=0.0, burst_k=None, peak_h=14.0):
+        """Real traffic is not stationary Poisson: it swings over the day and arrives in bursts. These knobs make the generator honest about that."""
+        self.swing, self.burst_k, self.peak_h = float(swing), burst_k, float(peak_h)
+
+    def normal(self, minute=None):
+        lam = self.lam
+        if self.swing and minute is not None:
+            lam = lam * (1.0 + self.swing * np.sin(2 * np.pi * (minute / 60.0 - self.peak_h + 6.0) / 24.0))
+        if self.burst_k:
+            lam = lam * self.rng.gamma(self.burst_k, 1.0 / self.burst_k)      # one shared burst factor per minute (mean 1)
+        return self.rng.poisson(lam).astype(float)
 
     def add(self, vec, flows):
         decoy = 0
@@ -83,7 +94,6 @@ class Watchdog:
         self.drift_events = 0
         self.last_learn = 0
         self.name_of = {i: (e["source"], e["target"]) for i, e in enumerate(ward["edges"])}
-        from .assumptions import A
         self.hosp_base = {h: v["beds"] * A("hospital_litres_per_bed_day") / 1000 / 86400 for h, v in ward["water"]["hospitals"].items()}
         self.demand_pattern = ward["water"]["demand_pattern"]
 
@@ -96,6 +106,7 @@ class Watchdog:
         self.expected = {}      # tag -> minute until which a change is expected/authorised
         self.persist = {}
         self.tank_hist = {"T1": deque(maxlen=20), "T2": deque(maxlen=20)}
+        self.scale = 1.0              # current overall traffic level relative to the learned normal (1.0 = as usual)
         self.cs = 0.0                 # CUSUM evidence: small, repeated signs add up until they cross a line
         self.ev_buf = deque(maxlen=25)
 
@@ -166,19 +177,42 @@ class Watchdog:
         for h, node in hosp_node.items():
             exp = self.hosp_base[h] * self.pattern_at(minute)
             hit(f"I8:{h}", rep[f"{h}_FLOW"] < 0.3 * exp and rep[f"{tank_of[h]}_level"] > 3.5, 5, 9, f"{h} receives almost no water although the network has pressure: its supply was cut inside the hospital", node)
+        # I9 / I10 the control network says one thing, the independent meters (separate path) say another: the control path is being lied to or has been taken over
+        ind = tele.get("independent")
+        if ind is not None and getattr(self, "use_independent", True):
+            for t, node in (("T1", "PLC_PS1"), ("T2", "PLC_PS2")):
+                hit(f"I9:{t}", abs(rep[f"{t}_level"] - ind[f"IND_{t}_level"]) > 0.4, 3, 9, f"{t} level reported by the control network differs by {rep[t+'_level']-ind['IND_'+t+'_level']:+.1f} m from the independent level sensor: the control readings are being faked", node)
+            for h in ("H1", "H2", "H3"):
+                exp = self.hosp_base[h] * self.pattern_at(minute)
+                dq = self.persist.setdefault(f"_d{h}", deque(maxlen=15))     # one minute of meter noise is as big as the signal, so compare 15-minute averages
+                dq.append(rep[f"{h}_FLOW"] - ind[f"IND_{h}_FLOW"])
+                hit(f"I10:{h}", len(dq) == 15 and abs(float(np.mean(dq))) > max(0.5 * exp, 0.0007), 3, 9, f"{h} inlet flow reported by the control network disagrees with the hospital's own meter", {"H1": "BMS_KEM"}.get(h))
         # I7 controller contradicts its own control logic
         for p, t, node, f in (("PS1", "T1", "PLC_PS1", "F1"), ("PS2", "T2", "PLC_PS2", "F2")):
             hit(f"I7:{p}", rep[f"{p}_state"] < 0.5 and rep[f"{t}_level"] < 3.6 and rep[f"CB_{f}"] > 0.5, 4, 8, f"{p} is stopped while {t} is low: the controller is not following its own logic", node)
         return z, viol
 
     # ---------------------------------------------------------------- core A: network behaviour
+    def _level(self, counts):
+        """Overall traffic level, from the MEDIAN of the busy flows (an attack touches a few flows, so the median ignores it). Lets the detector tell 'everything is busier than
+        usual' (a normal busy afternoon) from 'one flow is odd' (an intruder)."""
+        if not getattr(self, "use_scale", True):
+            return 1.0
+        if not hasattr(self, "_busy"):
+            self._busy = np.where(self.tr.lam >= 5)[0]
+        r = float(np.median(counts[self._busy] / self.tr.lam[self._busy]))
+        r = float(np.clip(r, 0.3, 3.0))
+        self.scale = 0.8 * self.scale + 0.2 * r          # slow copy, used for learning
+        return r                                        # this minute's level, used for judging this minute (a burst hits every flow in the same minute)
+
     def network(self, counts):
-        mu = self.mu
+        sc = self._level(counts)
+        mu = self.mu * sc
         var = mu + 0.3 + (0.15 * mu) ** 2
         zv = (counts - mu) / np.sqrt(var)
         zmax = float(zv.max())
         novelty = int(((mu < 0.02) & (counts >= 2)).sum())
-        x = np.log1p(counts)[None, :]
+        x = np.log1p(counts / sc)[None, :]
         err = float(((x - self.ae.predict(x)) ** 2).mean())
         top = np.argsort(-zv)[:3]
         ev = []
@@ -211,7 +245,8 @@ class Watchdog:
         if pz >= 8.0:
             p = max(p, 0.9)      # a broken physical law is an alarm on its own (no signature needed)
         if decoy_hits:
-            p = max(p, 0.995)
+            # a decoy touch is strong evidence but not proof: a vulnerability scanner or a confused device does the same. Alarm, but let corroboration (or a person) decide the cut.
+            p = max(p, 0.995 if (net["evidence"] or viol) else A("decoy_alarm_p"))
         # sequential detection (CUSUM): a stealthy intruder never trips the single-window alarm, but it keeps the fused score a little above normal for many minutes
         self.cs = max(0.0, 0.97 * self.cs + zf - getattr(self, "cs_k", 9.0))
         if net["evidence"]:
@@ -237,6 +272,7 @@ class Watchdog:
             return False
         if minute - getattr(self, "last_alert", -999) < quarantined_minutes:
             return False
+        counts = counts / max(self.scale, 0.3)                 # learn the shape of normal traffic, not today's busyness
         self.learn_buf.append(counts)
         self.mu = 0.995 * self.mu + 0.005 * counts           # slow EWMA of normal rates
         if len(self.learn_buf) >= 30:

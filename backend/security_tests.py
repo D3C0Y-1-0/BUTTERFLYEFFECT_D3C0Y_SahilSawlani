@@ -108,6 +108,41 @@ with TestClient(api.app) as c:
     ex3["public_key"] = "A" * 43 + "="
     check("snapshot signed by an unknown key rejected", not c.post("/api/airgap/import", headers=H(adm), json=ex3).json()["ok"])
 
+    # --- websocket: token in the first message, caps, shared frames
+    from starlette.websockets import WebSocketDisconnect as _WSD
+    with c.websocket_connect("/ws") as w:
+        w.send_text(json.dumps(dict(token=exe)))
+        check("websocket streams after a first-message token", "services" in json.loads(w.receive_text()))
+    try:
+        with c.websocket_connect("/ws?token=" + exe) as w:
+            w.send_text("{}")
+            w.receive_text()
+        check("a token in the URL no longer works", False)
+    except _WSD:
+        check("a token in the URL no longer works", True)
+    socks = []
+    refused = 0
+    try:
+        for _i in range(api.WS_PER_USER + 1):
+            cm = c.websocket_connect("/ws"); w = cm.__enter__(); socks.append(cm); w.send_text(json.dumps(dict(token=ope)))
+            try:
+                w.receive_text()
+            except _WSD:
+                refused += 1
+    finally:
+        for cm in socks:
+            try:
+                cm.__exit__(None, None, None)
+            except Exception:
+                pass
+    check("per-user websocket cap refuses the extra connection", refused == 1, refused)
+
+    # --- the security page is measured, not asserted
+    sec = c.get("/api/security", headers=H(exe)).json()["controls"]
+    bad = [x["id"] for x in sec if not x["ok"] and x["id"] not in ("tls", "mtls")]
+    check("every measured control on the Security page passes its own check", not bad, bad)
+    check("the Security page honestly reports what is not built (mTLS)", any(x["id"] == "mtls" and not x["ok"] for x in sec))
+
 passed = sum(r["passed"] for r in results)
 summary = f"{passed}/{len(results)} automated security tests passed"
 

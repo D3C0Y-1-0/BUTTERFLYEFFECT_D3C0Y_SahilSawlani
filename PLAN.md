@@ -883,3 +883,43 @@ Measured on 24 random zero-day campaigns (autonomy "Auto (safe steps)", search r
 * **Prediction before attacks (E21, 240 attacks).** A device from the forecast's top 5 was taken in 85.6% of attacks that got in, but the entry door itself was in the top 5 only 17% of the time and the predicted next step was right 41% (top 3: 45%). The forecast is good at "which devices matter", weak at "which door".
 * **Latency.** The risk model is trained (or loaded from `data/lab_model_cache.pkl`) before the server says it is ready; the forecast is cached on the server and in the browser; map data is gzip-compressed.
 * **Defend page** is now one module for "many small attacks" (the attackers, the alarm line against the slow build-up, what ATHENA did in order, outcome numbers). Map badges clear once the incident is resolved.
+
+## 35. Hardening round: external review findings (1 Nov 2026)
+An outside reviewer ran the system and reported flaws. Each one was reproduced, fixed where a fix is possible inside this project, and covered by a test (`backend/tests/test_hardening.py`, plus `security_tests.py`). Where the fix needs something the project does not have, it is said plainly.
+
+| # | Finding | What was done | What is still true |
+|---|---------|---------------|--------------------|
+| 3 | Forged traffic on VPN->hospital BMS made ATHENA cut the BMS and the VPN | `_auto_guard`: a cut that touches a hospital-adjacent device needs a person unless a physical reading or 3+ devices corroborate; at most 4 automatic steps per 120 simulated minutes; "nobody answered" now pages again instead of auto-applying a held plan; a lone decoy touch also waits for a person | Slower response on real hospital-adjacent attacks that show only network evidence. That is the intended trade |
+| 4 | A coherent telemetry spoof was invisible | A second sensing path (tank-level sensors on their own radio, hospitals' own inlet meters) the forger cannot touch; invariants I9 (level) and I10 (hospital flow, 15-minute average). New attack mode `spoof_coherent`. E23: median time to alarm 48 min with the path vs 512 min without | Needs real independent meters on site. A forger who also controls that path is not caught |
+| 5 | False alarms on non-textbook traffic (3 and 23 false incidents) | Traffic regimes (daily swing, bursts); detector rescales by the median of busy flows; trained and CUSUM-calibrated across regimes. E22: 0 false incidents in 12 calm days (4 regimes x 3 days), against 3, 1, 3 without the correction | Still synthetic. Real captures (public ICS pcaps) are needed before anyone should quote a false-alarm rate |
+| 6 | Tamper-evidence was cosmetic | Each entry carries an HMAC under a key kept outside the project; the log is persisted; an external anchor is written every 50 entries; re-hashing the chain without the key, deleting the tail, or swapping the file is detected | Root on the box plus the key directory can still forge it. The anchor must go to a write-once or off-box store in production |
+| 7 | Air-gap replay after restart | Version counters persisted; signing key moved out of `data/` | Demo runs both sides in one process; real deployments need an HSM and a separate import host |
+| 10 | Slow denial of service | Log memory capped at 5,000 entries, verification incremental and outside the lock; rate-limit buckets expire and are capped; vault gzipped by day and capped at 2 GB; login-failure table pruned | |
+| - | Security page hard-coded ok=True | `selfcheck.py` exercises each control (throw-away instances) and reports pass/fail with a reason; mTLS honestly shown as not built | |
+| - | Decoy constants hard-coded; scanners also trip decoys | `decoy_lure_p`, `decoy_trap_p`, `decoy_alarm_p` moved to `assumptions.py`; a lone decoy touch alarms at 0.9 and does not authorise a cut. E13 (decoys do not help) still stands | |
+| - | WebSocket denial of service; token in the URL | Token sent as the first message; 40 sockets overall and 4 per user; one shared snapshot per role per 0.2 s; session expiry ends the stream | The token still lives in sessionStorage |
+| - | Pickle model cache could run code if `data/` were writable | Cache is HMAC-signed with a key outside the project; MD5 replaced by SHA-256 | |
+
+Not fixed, and said out loud: circular validation (E1 and E10 use the same generator for truth and training), invented patch/weak-password rates, only 8 attacker actions in the exact outcome table, no real-protocol inspection, no SOC integration, no HA or key rotation, no adaptive attacker, no safety case (IEC 62443) or change-management process. Results in tables above this section that predate the separation (e.g. the §27 numbers) are superseded by `data/experiments.json`, which is the single source of truth and is what the Why us page reads.
+
+## 36. Bigger-data training, tuning and an overfitting audit of the "where will the attack land" model (1 Nov 2026)
+Script: `python backend/train_lab_v2.py 24 250 16` -> `data/lab_v2_report.json`.
+**Data.** Real inputs are CVSS/EPSS/KEV (NVD, FIRST, CISA) and the device inventory. No real attack-outcome data exists for any city, so every label (the share of 1,200 simulated attack worlds in which a device falls) comes from the Monte-Carlo threat model. The dataset was grown from 7,020 rows (the real ward, 260 control setups) to 162,000 rows: 24 worlds (the real one plus 23 "normalised jitters": EPSS and probabilities perturbed in logit space, CVSS +-0.4, weights x lognormal 0.25, link access in logit space) x 250 control setups x 27 devices. Labels are recomputed in every jittered world, never noised.
+**Splits.** Two whole worlds held out (never seen in any form), 20% of control setups held out inside the training worlds (including the real ward), tuning by 3-fold grouped CV on training groups only, test sets touched once.
+**Tuning.** 16 candidates (learning rate, depth, leaf size, L2, leaves, iterations; early stopping), chosen by CV error. The chosen settings beat the old ones by only 0.0001 in error: the old settings were already near the best.
+**Results (top-10% "high-risk device" = positive; recall = share of truly high-risk devices the model also flagged).**
+
+| Test | Model | Error (MAE) | Spearman | Precision | Recall | AUC | Top-5 overlap |
+|------|-------|------|------|------|------|------|------|
+| Held-out setups, all worlds | old (real ward, 260 setups) | 0.0206 | 0.866 | 0.64 | 0.63 | 0.951 | 0.716 |
+| | tuned, big data | 0.0177 | 0.890 | 0.68 | 0.68 | 0.961 | 0.730 |
+| Unseen worlds | old | 0.0228 | 0.851 | 0.57 | 0.61 | 0.936 | 0.668 |
+| | tuned, big data | 0.0208 | 0.883 | 0.58 | 0.62 | 0.937 | 0.692 |
+| Real ward only (48 setups) | old | 0.0150 | 0.900 | 0.70 | 0.75 | 0.964 | 0.746 |
+| | tuned, big data | 0.0172 | 0.884 | 0.69 | 0.75 | 0.962 | 0.733 |
+CVSS alone ranks at Spearman 0.15.
+**Overfitting.** None: train error 0.0177, cross-validation 0.0177 (sd 0.0002), held-out setups 0.0177; recall 0.67 on train vs 0.68 on test. The learning curve is flat from 12k to 119k training rows, so the limit is the features and the noise in the simulated labels, not the amount of data.
+**Decision.** Not integrated. The big-data model transfers better to perturbed worlds (about 9% lower error) but is no better, and marginally worse, on the real ward, which is the one that is deployed. The shipped model stays v1.1. Honest caveat: this is a surrogate of the simulator; its labels are partly a function of the same inputs, so high agreement shows it learned the simulator, not that it predicts real attacks.
+**Not done.** Retraining or re-tuning the response policy (PPO / search planner) on a bigger dataset: the existing comparison (E15/E16) stands, and a fair replacement test needs hours of training per seed.
+
+**Regression check after the hardening round (E17 re-run, 8,000 attacks, same seeds).** Honest cost of the safety changes: intruders caught 96.5% -> 92.3%, median alarm 9 -> 14 min, stopped before equipment was touched 82.4% -> 67.9% (lower 95% bound 66.5%), worst single loss 187,657 -> 284,153; calm-day false alarms still 0 of 60 runs. Likely cause (not yet isolated by a separate run): the batch has no human operator, so plans held for hospital-adjacent devices, lone decoy touches and the 4-steps-per-120-minutes limit are never approved, whereas before ATHENA cut them automatically; the detector retrained on noisier traffic is also somewhat less sensitive. Next step: add a simulated operator who answers held plans after a delay, and measure the guard and the detector separately.

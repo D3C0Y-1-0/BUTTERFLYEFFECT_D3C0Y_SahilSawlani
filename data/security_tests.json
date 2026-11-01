@@ -184,34 +184,87 @@
    "name": "snapshot signed by an unknown key rejected",
    "passed": true,
    "detail": ""
+  },
+  {
+   "name": "websocket streams after a first-message token",
+   "passed": true,
+   "detail": ""
+  },
+  {
+   "name": "a token in the URL no longer works",
+   "passed": true,
+   "detail": ""
+  },
+  {
+   "name": "per-user websocket cap refuses the extra connection",
+   "passed": true,
+   "detail": "1"
+  },
+  {
+   "name": "every measured control on the Security page passes its own check",
+   "passed": true,
+   "detail": "[]"
+  },
+  {
+   "name": "the Security page honestly reports what is not built (mTLS)",
+   "passed": true,
+   "detail": ""
   }
  ],
- "summary": "37/37 automated security tests passed \u00b7 bandit: 0 high / 0 medium / 3 low \u00b7 pip-audit: 1 packages with known CVEs",
+ "summary": "42/42 automated security tests passed \u00b7 bandit: 1 high / 1 medium / 5 low \u00b7 pip-audit: 1 packages with known CVEs",
  "extra": {
   "bandit": {
-   "HIGH": 0,
-   "MEDIUM": 0,
-   "LOW": 3,
+   "HIGH": 1,
+   "MEDIUM": 1,
+   "LOW": 5,
    "issues": [
+    {
+     "test": "B403",
+     "sev": "LOW",
+     "file": "lab_service.py",
+     "line": 8,
+     "text": "Consider possible security implications associated with pickle module."
+    },
     {
      "test": "B110",
      "sev": "LOW",
      "file": "lab_service.py",
-     "line": 55,
+     "line": 57,
+     "text": "Try, Except, Pass detected."
+    },
+    {
+     "test": "B324",
+     "sev": "HIGH",
+     "file": "lab_service.py",
+     "line": 96,
+     "text": "Use of weak MD5 hash for security. Consider usedforsecurity=False"
+    },
+    {
+     "test": "B301",
+     "sev": "MEDIUM",
+     "file": "lab_service.py",
+     "line": 109,
+     "text": "Pickle and modules that wrap it can be unsafe when used to deserialize untrusted data, pos"
+    },
+    {
+     "test": "B110",
+     "sev": "LOW",
+     "file": "lab_service.py",
+     "line": 134,
      "text": "Try, Except, Pass detected."
     },
     {
      "test": "B110",
      "sev": "LOW",
      "file": "lab_service.py",
-     "line": 120,
+     "line": 148,
      "text": "Try, Except, Pass detected."
     },
     {
      "test": "B110",
      "sev": "LOW",
      "file": "runtime.py",
-     "line": 157,
+     "line": 164,
      "text": "Try, Except, Pass detected."
     }
    ]
@@ -223,5 +276,5 @@
    ]
   }
  },
- "generated": "2026-11-01 04:07:15"
+ "generated": "2026-11-01 08:23:39"
 }

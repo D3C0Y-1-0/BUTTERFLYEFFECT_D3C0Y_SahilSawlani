@@ -1,0 +1,1 @@
+{"params": {"learning_rate": 0.06, "max_depth": null, "min_samples_leaf": 50, "l2_regularization": 1.0, "max_leaf_nodes": 63, "max_iter": 200, "early_stopping": true, "validation_fraction": 0.1, "n_iter_no_change": 15}, "trained_worlds": 24, "configs": 250}

@@ -11,6 +11,10 @@ from .twin import LiveTwin
 from .watchdog import CS_H_ADD, CS_H_MUL, CS_K_SD, Traffic, Watchdog
 
 
+# (daily swing, burstiness k, peak hour): plain Poisson, a daily swing, burstier, both. Training on all of them is what lets the detector cope with traffic that is not textbook.
+REGIMES = [(0.0, None, 14.0), (0.35, None, 14.0), (0.0, 3.0, 14.0), (0.6, 2.0, 11.0), (0.2, 6.0, 17.0), (0.0, None, 14.0)]
+
+
 def build_watchdog(ward, threat, seed=0, episodes=36, verbose=False):
     """Train the fusion model on labelled simulated episodes (normal vs each attack mode)."""
     tr = Traffic(ward, seed=seed + 11)
@@ -23,6 +27,7 @@ def build_watchdog(ward, threat, seed=0, episodes=36, verbose=False):
         for _ in range(90):
             tw.step()
         wd.reset_state()
+        tr.set_regime(*REGIMES[ep % len(REGIMES)])
         adv = Adversary(ward, seed=seed + 100 + ep)
         env = Environment(ward, threat, seed=seed + 200 + ep)
         attack = ep % 3 != 0  # one third pure normal
@@ -49,7 +54,7 @@ def build_watchdog(ward, threat, seed=0, episodes=36, verbose=False):
                 if ph["kind"] in ("valve_close", "breaker_open", "hospital_isolate") and mode != "spoof":
                     pass
             tele = tw.step()
-            counts = tr.normal()
+            counts = tr.normal(minute)
             decoy = tr.add(counts, flows)
             res = wd.observe(counts, tele, minute, decoy)
             label = 1 if (attack and (adv.active() or (started_phys and any(v > tw.minute for v in list(tw.forced_off.values()) + list(tw.breaker_open.values()) + list(tw.valve_closed.values()))))) else 0
@@ -67,5 +72,6 @@ def build_watchdog(ward, threat, seed=0, episodes=36, verbose=False):
         for v in z:
             s_ = max(0.0, 0.97 * s_ + float(v) - wd.cs_k); mx = max(mx, s_)
     wd.cs_h = mx * CS_H_MUL + CS_H_ADD
+    tr.set_regime()
     wd.reset_state()
     return wd, tr, (X, y)
