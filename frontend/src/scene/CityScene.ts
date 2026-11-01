@@ -282,7 +282,7 @@ export class CityScene {
   /** The land around the ward: low pale blocks on a loose grid, thinning with distance, with main roads out to every Mumbai site. */
   buildSurround() {
     const bx = this.wardBox; const sites = Object.values<any>(this.st.physical).filter((p) => p.kind === "site").map((p) => this.p(p.xz, 0));
-    const cell = 13; const cells: THREE.Matrix4[] = []; const cols: THREE.Color[] = []; const m = new THREE.Matrix4(); const pal = [0xF3CDB6, 0xF1C2C4, 0xF6E3B0, 0xCDE7D2, 0xC4DEF1, 0xDCD0EE, 0xF4D5BC, 0xD3E8D9, 0xF0CBD3, 0xE6DEC2];
+    const cell = 13; const cells: THREE.Matrix4[] = []; const cols: THREE.Color[] = []; const m = new THREE.Matrix4(); const pal = [0xE9946B, 0xF3B98F, 0xF0A3A8, 0xF2D27A, 0x9ED3B5, 0x8EC3E8, 0x6FA6D6, 0xE0875F, 0xF3DDB4, 0xB7CFA0];
     for (let x = -240; x < 1000; x += cell) for (let z = -900; z < 900; z += cell) {
       const px = x + (hash(`x${x},${z}`) - 0.5) * 6, pz = z + (hash(`z${x},${z}`) - 0.5) * 6; if (px < this.coastX(pz) + 10) continue;
       if (px > bx[0] && px < bx[1] && pz > bx[2] && pz < bx[3]) continue; if (sites.some((s) => Math.hypot(s.x - px, s.z - pz) < 26)) continue;
@@ -317,12 +317,12 @@ export class CityScene {
     const geos: THREE.BufferGeometry[] = [];
     // Game-style palette: warm plaster walls with occasional blue glass, saturated roofs (finite light-bounce look).
     // Mumbai-style palette: low blocks are painted plaster (terracotta, ochre, peach, rose, mint, sky, cream); tall blocks are glass in blue, teal or steel; a few are grey concrete.
-    // Soft pastel tints (peach, rose, butter, mint, sky, lilac): enough colour to read as a living city, never enough to compete with the nodes.
-    const WALL = ["#F3C3A8", "#F0B4BC", "#F5DFA0", "#BFE2C6", "#B5D8EE", "#D3C4EA", "#F4CBAE", "#C9E4CF", "#EFBFCB", "#E2D9B8", "#B9DDE3", "#EDD2B0"].map((c) => new THREE.Color(c));
-    const GLASS = ["#B5D6EE", "#A9D0E4", "#BCDAEC", "#A8D6D0", "#BFD3EE", "#B0C6E4"].map((c) => new THREE.Color(c));
-    const CONC = ["#DAD6CC", "#D2CEC4", "#E0DBCE"].map((c) => new THREE.Color(c));
-    const ROOF = ["#E3AF98", "#B9C8D6", "#E6B9A6", "#D5BD9E", "#AFC2D4", "#A9BDD1", "#DEA997"].map((c) => new THREE.Color(c));
-    const put = (arr: Float32Array, i: number, c: THREE.Color, k: number) => { const w = 0.1; arr[i * 3] = c.r * k * (1 - w) + w; arr[i * 3 + 1] = c.g * k * (1 - w) + w; arr[i * 3 + 2] = c.b * k * (1 - w) + w; };  // only a hint of wash: keep the game colour
+    // Reference look: colourful blocks (terracotta, peach, rose, butter, mint) with blue and teal glass towers.
+    const WALL = ["#E0875F", "#D9734F", "#EDA372", "#F2BC93", "#EE9AA0", "#E5C070", "#F3DDB4", "#97D0B2", "#7DBFA6", "#8EC3E8", "#C9A07A", "#B7CFA0"].map((c) => new THREE.Color(c));
+    const GLASS = ["#5E9BD6", "#4F8FC9", "#6FB1DC", "#3F9FB8", "#7FA6CC", "#5B7FB0"].map((c) => new THREE.Color(c));
+    const CONC = ["#C9C5BC", "#BDB9B0", "#D3CEC2"].map((c) => new THREE.Color(c));
+    const ROOF = ["#C46A4B", "#8D9BA8", "#D07C5C", "#B58A5E", "#7E93A5", "#5C7FA3", "#B85D45"].map((c) => new THREE.Color(c));
+    const put = (arr: Float32Array, i: number, c: THREE.Color, k: number) => { const w = 0.03; arr[i * 3] = c.r * k * (1 - w) + w; arr[i * 3 + 1] = c.g * k * (1 - w) + w; arr[i * 3 + 2] = c.b * k * (1 - w) + w; };  // only a hint of wash: keep the game colour
     for (const bd of b) {
       const pts = bd.p.map((q: number[]) => new THREE.Vector2((q[0] - o[1]) * 111320 * cosl * S, (q[1] - o[0]) * 110540 * S)); if (pts.length < 3) continue;
       const key = JSON.stringify(bd.p[0]); const hm = bd.h || (bd.lv ? bd.lv * 3.2 : 6 + hash(key) * 16); let ge: THREE.ExtrudeGeometry;
