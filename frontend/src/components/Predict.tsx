@@ -9,13 +9,19 @@ import { showBlast } from "../focus";
 
 const WHY: Record<string, string> = { vulnerability: "a known weakness", exposure: "it faces the internet", "access control": "weak logins", segmentation: "poor separation", "network position": "where it sits in the network" };
 
+const CACHE: { data: any; at: number } = { data: null, at: 0 };   // survives closing and reopening the page
+
 /** Prediction: which devices the attacker is most likely to take next, why, what is at stake, and what to do about it. */
 export function PredictView() {
   const st = useStore((s) => s.st), snap = useStore((s) => s.snap), role = useStore((s) => s.role);
-  const [f, setF] = useState<any>(null); const [err, setErr] = useState("");
+  const [f, setF] = useState<any>(CACHE.data); const [err, setErr] = useState("");
   useEffect(() => {
     let live = true; let t: any;
-    const go = () => api("/api/v2/forecast?top=6").then((x) => { if (live) { setF(x); setErr(""); } }).catch((e) => { if (live) { setErr(/training/i.test(e.message) ? "The forecast model is still training (about 30 seconds)…" : e.message); t = setTimeout(go, 4000); } });
+    if (CACHE.data && Date.now() - CACHE.at < 90000) return () => { live = false; };   // opened again within 90 s: show what we already have, ask for nothing
+    const go = () => api("/api/v2/model").then((m) => {   // ask for the model's status first: asking for the forecast while it trains returns 409 and fills the browser console with red lines
+      if (!live) return; if (m.state?.status !== "ready") { setErr(m.state?.status === "error" ? "The forecast model failed to train: " + (m.state?.error || "unknown error") : "The forecast model is still training (about 30 seconds)…"); t = setTimeout(go, 3000); return; }
+      return api("/api/v2/forecast?top=6").then((x) => { CACHE.data = x; CACHE.at = Date.now(); if (live) { setF(x); setErr(""); } });
+    }).catch((e) => { if (live) { setErr(e.message); t = setTimeout(go, 4000); } });
     go(); return () => { live = false; clearTimeout(t); };
   }, []);
   const inc = [...(snap.incidents || [])].reverse().find((i: any) => i.status === "open" || i.status === "contained"); const nx = inc?.next_hops || [];

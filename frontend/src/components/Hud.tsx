@@ -50,6 +50,9 @@ export function Legend() {
       {open && <div className="lb">
         {rows.map(([l, c]) => <div key={l}><i style={{ background: c }} />{l}</div>)}
         <div className="sep" />
+        <div><b className="badge1" style={{ background: HOT }}>!</b>Taken over</div>
+        <div><b className="badge1" style={{ background: "#F28C1B" }}>?</b>Suspected</div>
+        <div><b className="badge1" style={{ background: C.aquaD }}>✓</b>Cut off / protected</div>
         <div><s style={{ background: HOT }} />Attack path / blast radius</div>
         <div><s style={{ background: "#F28C1B" }} />Predicted next step</div>
         <div><s style={{ background: C.aquaD }} />Defence / protected</div>

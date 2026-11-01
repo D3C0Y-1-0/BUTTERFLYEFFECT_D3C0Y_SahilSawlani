@@ -55,10 +55,21 @@ if ($needInstall) {
   }
 }
 
-if (-not (Test-Path frontend\dist)) {
+# The interface is rebuilt whenever the build is missing, half-finished (no index.html, for example after an interrupted build) or older than the source files.
+# Before this check, a friend with a leftover frontend\dist folder had to delete it by hand.
+$distIndex = "frontend\dist\index.html"
+$srcNewest = Get-ChildItem frontend\src, frontend\index.html, frontend\public, frontend\package.json -Recurse -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$needBuild = (-not (Test-Path $distIndex)) -or (-not (Test-Path "frontend\dist\assets")) -or ($srcNewest -and $srcNewest.LastWriteTime -gt (Get-Item $distIndex).LastWriteTime)
+if ($needBuild) {
   if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { Write-Host "Node.js is needed once to build the interface. Install it from https://nodejs.org (LTS) and run .\run.ps1 again." -ForegroundColor Red; exit 1 }
-  Push-Location frontend; npm install; npm run build; Pop-Location
-  if (-not (Test-Path frontend\dist)) { Write-Host "The interface build failed (see the messages above)." -ForegroundColor Red; exit 1 }
+  Write-Host "Building the interface (first run, or the code changed)..." -ForegroundColor Cyan
+  Remove-Item -Recurse -Force frontend\dist -ErrorAction SilentlyContinue
+  Push-Location frontend
+  if (-not (Test-Path node_modules\vite)) { npm install; if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Host "npm install failed (see above)." -ForegroundColor Red; exit 1 } }
+  npm run build
+  $buildCode = $LASTEXITCODE
+  Pop-Location
+  if ($buildCode -ne 0 -or -not (Test-Path $distIndex)) { Remove-Item -Recurse -Force frontend\dist -ErrorAction SilentlyContinue; Write-Host "The interface build failed (see the messages above). The half-built folder was removed; fix the error and run .\run.ps1 again." -ForegroundColor Red; exit 1 }
 }
 $env:DECOY_DEMO = "1"          # shows demo accounts + live TOTP codes on the login page. Set to 0 in production.
 $env:PYTHONWARNINGS = "ignore"

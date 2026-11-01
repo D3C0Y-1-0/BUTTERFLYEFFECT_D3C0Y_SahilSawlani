@@ -1,4 +1,4 @@
-import { getState, setState } from "./store";
+import { getState, setState, toast } from "./store";
 import { dijkstra, routeTo } from "./routes";
 
 /** What the map highlights. Every button in the side panel that refers to a path, link or device sets one of these. Pressing it again clears it. */
@@ -35,7 +35,7 @@ export function blastOf(st: any, id: string) {
   for (const n of reach) { blast[n] = Math.exp(-dist[n]); let v = n; while (v !== id && prev[v]) { const e = prev[v]; if (!edges.has(e.id)) { edges.add(e.id); segs.push([e.source, e.target]); } v = e.source; } }
   const reached = new Set([id, ...reach]); const sites: string[] = [];
   for (const ph of Object.values<any>(st.physical)) {
-    if (ph.kind !== "site") continue; const dep = (ph.depends_on || []).filter((d: string) => reached.has(d)); if (!dep.length) continue;
+    if (ph.kind !== "site") continue; const dep = (ph.depends_on || []).filter((d: string) => reached.has(d) && Math.exp(-(dist[d] ?? 0)) >= 0.3); if (!dep.length) continue;
     const via = dep.sort((a: string, b: string) => (dist[a] ?? 0) - (dist[b] ?? 0))[0]; sites.push(ph.id); segs.push([via, ph.id]); blast[ph.id] = Math.exp(-(dist[via] ?? 0)) * 0.8;
   }
   return { blast, segs, edges: [...edges], marks: [id, ...reach, ...sites], sites, devices: reach };
@@ -47,6 +47,15 @@ export function showBlast(st: any, id: string) {
 
 /** Select a device (opens its card) and show its blast radius (default) or the way in. */
 export function pickNode(st: any, id: string | null) {
+  const pk = getState().pick;
+  if (pk && id) {   // choosing an attack entry point or target by clicking the map
+    const a = st.assets[id]; const isCtrl = Object.values<any>(st.actions).some((x: any) => x.controller === id);
+    if (!a || id === "INTERNET" || (pk === "goal" && !isCtrl)) { toast("warn", pk === "goal" ? "Pick a controller (a pump, valve or breaker controller)" : "Pick a device"); return; }
+    const entry = pk === "entry" ? id : getState().atkEntry, goal = pk === "goal" ? id : getState().atkGoal;
+    setState({ [pk === "entry" ? "atkEntry" : "atkGoal"]: id, pick: null, selected: null, focus: { key: "pick:" + entry + ">" + goal, kind: "predicted", marks: [entry, goal].filter(Boolean) } } as any);
+    toast("ok", (pk === "entry" ? "Entry point: " : "Target: ") + (a.name || id).replace(/ \(.*\)/, ""));
+    return;
+  }
   if (!id) { setState({ selected: null, focus: null }); return; }
   const ph = st.physical[id]; setState({ selected: id, focus: null });
   if (ph?.kind === "site") { const dep: string[] = ph.depends_on || []; setState({ focus: { key: "s:" + id, kind: "attack", segs: dep.map((d) => [d, id]), marks: [id, ...dep], blast: Object.fromEntries(dep.map((d) => [d, 0.6])) } }); return; }   // a site: the devices it relies on

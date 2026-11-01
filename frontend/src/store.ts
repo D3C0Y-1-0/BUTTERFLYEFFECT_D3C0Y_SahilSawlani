@@ -7,16 +7,16 @@ export interface State {
   st: any; geo: any; snap: any; ana: any; exp: any;
   view: View; selected: string | null; hovered: string | null;
   layers: Record<string, boolean>; stack: boolean; xray: boolean;
-  hist: { t: number; p: number; live: number; none: number; iso: number }[];
+  hist: { t: number; cs?: number; line?: number; raw?: number; p: number; live: number; none: number; iso: number }[];
   toast: { id: number; sev: string; text: string } | null;
   judge: number | null; pathSel: any; connected: boolean; quality: number; booting: boolean; safetyTab: "certin" | "security";
-  labNodes: string[]; labStart: string | null; marks: { t: number; label: string; wall: number; before?: number; after?: number }[]; focus: any | null; side: boolean; full: boolean; graph: boolean; blast: boolean; paused: boolean;
+  labNodes: string[]; labStart: string | null; follow: boolean; pick: "entry" | "goal" | null; atkEntry: string; atkGoal: string; marks: { t: number; label: string; wall: number; before?: number; after?: number }[]; focus: any | null; side: boolean; full: boolean; graph: boolean; blast: boolean; paused: boolean;
 }
 
 const init: State = {
   token: sessionStorage.getItem("decoy_token"), user: sessionStorage.getItem("decoy_user"), role: sessionStorage.getItem("decoy_role"),
   st: null, geo: null, snap: null, ana: null, exp: null, view: "city", selected: null, hovered: null,
-  layers: { links: true, risk: false }, stack: false, xray: false, hist: [], toast: null, judge: null, pathSel: null, connected: false, quality: 2, booting: true, safetyTab: "certin", labNodes: [], labStart: null, marks: [], focus: null, side: false, full: false, graph: false, blast: true, paused: false,
+  layers: { links: true, risk: false }, stack: false, xray: false, hist: [], toast: null, judge: null, pathSel: null, connected: false, quality: 2, booting: true, safetyTab: "certin", labNodes: [], labStart: null, follow: false, pick: null, atkEntry: "", atkGoal: "", marks: [], focus: null, side: false, full: false, graph: false, blast: true, paused: false,
 };
 
 let state = init;

@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 
 from .adversary import Adversary
+from .environment import Environment
 from .assumptions import ASSUMPTIONS
 from .city import DATA
 from .healer import ISOLATION_H, OPS_COST, OPS_UNIT, Healer
@@ -275,7 +276,8 @@ class ZDEnv:
         if self.lib.learned(key):
             for n in c.prod[key]:
                 self.defence.zd_mult[n] = VP_POST
-        self.adv = Adversary(c.ward, c.T, int(self.rng.integers(1e6)), lambda: self.defence)
+        self.adv = Adversary(c.ward, int(self.rng.integers(1e6)))
+        self.env = Environment(c.ward, c.T, defence=lambda: self.defence, seed=int(self.rng.integers(1e6)))
         entries = [n for n, a in c.ward["assets"].items() if a["entry_weight"] > 0]
         goals = list(self.adv.goals)
         self.camp = self.adv.launch(self.twin.minute, mode=mode or str(self.rng.choice(["standard", "spoof", "wear", "insider"])), entry=entry or str(self.rng.choice(entries)),
@@ -300,7 +302,8 @@ class ZDEnv:
         tw, c = self.twin, self.core
         for _ in range(DECISION_MIN):
             m = tw.minute
-            fl, ph, evs = self.adv.tick(m, self.defence, None)
+            fl, ph, evs = self.adv.tick(m, self.env)
+            fl = self.env.deliver(fl)
             for e in evs:
                 if e["type"] == "hop" and self.rng.random() < 0.55:
                     self.st.observed.add(e["dst"]); self.st.observed.discard("INTERNET")

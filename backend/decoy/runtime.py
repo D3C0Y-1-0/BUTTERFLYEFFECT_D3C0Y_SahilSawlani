@@ -24,7 +24,8 @@ from .physics import Physics
 from .planner import Planner
 from .threat import Defence, ThreatModel
 from .twin import LiveTwin
-from .watchdog import build_watchdog
+from .training import build_watchdog
+from .environment import Environment
 from .rl import DECISION_MIN, PPO, RLCore, ZDState
 from .zeroday import EXPLOITS, Library, fingerprint, products, random_zero_day
 
@@ -86,6 +87,7 @@ class Runtime:
             self.live = LiveTwin(self.ward, seed=1, name="live")
             self.none = LiveTwin(self.ward, seed=1, name="none")
             self.iso = LiveTwin(self.ward, seed=1, name="iso")
+            self.flood_blocked, self.flood_until, self.flood_pending, self.flood_active, self.flood_only = {}, {}, [], False, False
             for _ in range(60):
                 for tw in (self.live, self.none, self.iso):
                     tw.step()
@@ -93,9 +95,14 @@ class Runtime:
                 tw.lost = dict(hh_h=0.0, hosp_h=0.0, mwh=0.0)
             self.defence = Defence()
             self.decoys = {}
-            self.adv = Adversary(self.ward, self.T, seed + 3, lambda: self.defence)
-            self.adv_none = Adversary(self.ward, self.T, seed + 3)
-            self.adv_iso = Adversary(self.ward, self.T, seed + 3)
+            # ATTACKER SIDE (three copies of the same attack, for the scoreboard) and ENVIRONMENT. The defence code below never reads self.adv*.
+            self.adv = Adversary(self.ward, seed + 3)
+            self.adv_none = Adversary(self.ward, seed + 3)
+            self.adv_iso = Adversary(self.ward, seed + 3)
+            self.env_live = Environment(self.ward, self.T, defence=lambda: self.defence, decoys=lambda: self.decoys, seed=seed)
+            self.env_none = Environment(self.ward, self.T, seed=seed)          # same dice as the live world, so the three worlds differ only because of what the defence did
+            self.env_iso = Environment(self.ward, self.T, refuse_all=lambda: self.iso_cut, seed=seed)
+            self.last_net_ev = -9999
             self.iso_cut = False
             self.incidents, self.proposals, self.feed = [], [], deque(maxlen=300)
             self.hi, self.lo = 0, 0
@@ -188,13 +195,29 @@ class Runtime:
             if goal is not None and goal not in self.adv.goals:
                 raise ValueError("unknown goal")
             m = self.live.minute
-            c = self.adv.launch(m, mode=mode, entry=entry, goal=goal, stealth=stealth)
-            for a in (self.adv_none, self.adv_iso):
-                a.launch(m, mode=mode, entry=c.entry, goal=c.goal, stealth=c.stealth, zd=c.zd)
-            if c.zd is not None:
-                self._lab_register(c.zd, c, actor)
-            self.note("attack_launched", "warn", f"[{actor}] {MODES[mode]} via {self.ward['assets'][c.entry]['name']} aiming at {self.ward['assets'][c.goal]['name']}", campaign=c.id, mode=mode, hidden=True)
-            return c.public()
+            if mode == "group":      # a coordinated group: three attackers through different doors at different targets, plus a flood as cover
+                made = []
+                for i, sub in enumerate(("standard", "zero_day", "spoof", "ddos")):
+                    made.append(self._launch_one(m, sub, entry if i == 0 else None, goal if i == 0 else None, None, actor))
+                self.note("attack_launched", "warn", f"[{actor}] Coordinated group: {len(made)} attackers at once, including a flood", campaign=made[0]["id"], mode=mode, hidden=True)
+                return made[0]
+            if mode == "swarm":      # low and slow: several very quiet attackers at different doors at once. Each stays under the single-alarm line; together they add up.
+                doors = [n for n, a_ in self.ward["assets"].items() if a_["entry_weight"] > 0 and n != entry]
+                picks = ([entry] if entry else []) + [str(x) for x in self.rng.choice(doors, size=5 - (1 if entry else 0), replace=False)]
+                made = [self._launch_one(m, "standard", d, goal if i == 0 else None, 0.8, actor, quiet=True) for i, d in enumerate(picks)]
+                self.note("attack_launched", "warn", f"[{actor}] Swarm: {len(made)} very quiet attackers at once", campaign=made[0]["id"], mode=mode, hidden=True)
+                return made[0]
+            return self._launch_one(m, mode, entry, goal, stealth, actor)
+
+    def _launch_one(self, m, mode, entry, goal, stealth, actor, quiet=False):
+        c = self.adv.launch(m, mode=mode, entry=entry, goal=goal, stealth=stealth)
+        c.quiet = quiet
+        for a in (self.adv_none, self.adv_iso):
+            a.launch(m, mode=mode, entry=c.entry, goal=c.goal, stealth=c.stealth, zd=c.zd).quiet = quiet
+        if c.zd is not None:
+            self._lab_register(c.zd, c, actor)
+        self.note("attack_launched", "warn", f"[{actor}] {MODES[mode]} via {self.ward['assets'][c.entry]['name']} aiming at {self.ward['assets'][c.goal]['name']}", campaign=c.id, mode=mode, hidden=True)
+        return c.public()
 
     def emergency_stop(self, actor="operator"):
         """Kill switch. Halts every running attack, turns the automatic attacker off and puts the defender into ask-first mode."""
@@ -239,7 +262,7 @@ class Runtime:
         if inc:
             cut = next((s for s in inc["stages"] if s["stage"] == "Cut made"), None)
             prop = next((q for q in self.proposals if q["incident"] == inc["id"] and q["status"] == "pending"), None)
-            if cut and not self.adv.active():
+            if cut and (m - self.last_net_ev) >= 5:
                 shown = p * math.exp(-(m - cut["minute"]) / 6.0)
                 phase = "healing"
                 note = f"Attacker cut off. {'Crew restoring equipment, about ' + str(left) + ' min left.' if left else 'Checking that everything is back to normal.'}"
@@ -261,9 +284,15 @@ class Runtime:
             self.launch_attack(mode)
             self.next_launch = m + int(self.rng.integers(120, 260))
         # adversaries
-        fl, ph, evs = self.adv.tick(m, self.defence, self.decoys)
-        fl_n, ph_n, _ = self.adv_none.tick(m)
-        fl_i, ph_i, _ = (self.adv_iso.tick(m) if not self.iso_cut else ([], [], []))
+        fl, ph, evs = self.adv.tick(m, self.env_live)
+        fl = self.env_live.deliver(fl)                     # traffic on a closed link never arrives
+        for ev in evs:                                     # scoreboard only: did the flood still reach an open door this minute?
+            if ev["type"] == "flood":
+                camp = next((x for x in self.adv.campaigns if x.id == ev["campaign"]), None)
+                if camp is not None and any(not self.env_live.blocked(self.env_live.edge[x]) for x in ev["edges"]):
+                    camp.flood_open += 1
+        fl_n, ph_n, _ = self.adv_none.tick(m, self.env_none)
+        fl_i, ph_i, _ = (self.adv_iso.tick(m, self.env_iso) if not self.iso_cut else ([], [], []))
         for e in evs:
             if e["type"] in ("hop", "attack_blocked", "decoy_touch"):
                 self.note("adversary_" + e["type"], "info", e.get("text") or f"hop {e['src']} -> {e['dst']}", hidden=True)
@@ -281,11 +310,16 @@ class Runtime:
         obs = self.watchdog.observe(counts, tele, m, decoy_hits)
         self.last_obs = obs
         self.last_p = obs["p"]
+        if obs["evidence"]:
+            self.last_net_ev = m                       # the last minute the Watchdog saw odd network traffic (the only "is it still going on?" signal the defence has)
         self.watchdog.learn(counts, obs["p"], m)
         for src in self.tg.skew:
             pass
+        self._flood_guard(counts, obs, m)
         # incidents
         self._incident_logic(obs, m)
+        self._flood_note(m)
+        self._scorekeeper(m)
         self._escalate(m)
         self._rl_tick(m)
         # verification of applied containment
@@ -326,6 +360,34 @@ class Runtime:
                 tw.spoof_until[f"CB_{p['target']}"] = until
 
     # ------------------------------------------------------------------ incident management
+    def _flood_guard(self, counts, obs, m):
+        """DDoS guard. A flood is a huge number of connections at a public door. The response is cheap and safe: drop that traffic at the edge (rate-limit the internet link).
+        It never touches the control network, so it needs no hospital check. It is released after 30 quiet-looking minutes and re-applied at once if the flood is still there."""
+        tr = self.traffic
+        if not hasattr(self, "_inet_edges"):
+            self._inet_edges = [(e["id"], tr.eidx[e["id"]]) for e in self.ward["edges"] if e["source"] == "INTERNET"]
+            self.flood_blocked, self.flood_until, self.flood_pending = {}, {}, []
+        flooded = [eid for eid, i in self._inet_edges if counts[i] > 12 * tr.lam[i] + 80 and eid not in self.defence.blocked_edges]
+        auto = self.autonomy in ("auto_low", "auto_all") and not self.stopped
+        if flooded and auto:
+            for eid in flooded:
+                self.defence.blocked_edges.add(eid); self.flood_blocked[eid] = m + 30
+            self.flood_pending.append(dict(label=f"Drop flood traffic at {len(flooded)} public door{'s' if len(flooded) != 1 else ''} (rate-limit the internet link)", actor="athena:flood-guard", minute=m,
+                                           safety="Safe: nothing behind these links runs water or power", target=dict(edge=flooded[0])))
+            self.note("flood_guard", "warn", f"Flood of connections at {len(flooded)} public door(s): dropping it at the edge.", hidden=False)
+        for eid, until in list(self.flood_blocked.items()):
+            if until <= m:
+                self.defence.blocked_edges.discard(eid); del self.flood_blocked[eid]    # probe: if the flood is still there it is blocked again within a minute
+        self.flood_active = bool(flooded) or bool(self.flood_blocked)
+        self.flood_only = bool(flooded) and not obs["violations"] and all(e["src"] == "INTERNET" for e in obs["evidence"])
+
+    def _flood_note(self, m):
+        inc = next((i for i in self.incidents if i["status"] in ("open", "contained")), None)
+        if inc is not None and getattr(self, "flood_pending", None):
+            inc["actions"].extend(self.flood_pending); self.flood_pending = []
+            if not any(s["stage"] == "Cut made" for s in inc["stages"]):
+                inc["stages"].append(dict(stage="Cut made", minute=m))
+
     def _incident_logic(self, obs, m):
         p = obs["p"]
         open_inc = next((i for i in self.incidents if i["status"] in ("open", "contained")), None)
@@ -355,10 +417,10 @@ class Runtime:
             if comp_est:
                 open_inc["next_hops"] = self.healer.next_hops(comp_est, self.defence)
             # re-plan when evidence grows
-            if self.autonomy != "observe" and len(ev) > open_inc.get("planned_for", 0) and not open_inc.get("planning") and not self._uses_ppo(open_inc):
+            if self.autonomy != "observe" and len(ev) > open_inc.get("planned_for", 0) and not open_inc.get("planning") and not self._uses_ppo(open_inc) and not getattr(self, "flood_only", False):
                 self._request_decision(open_inc)
             # resolve
-            quiet = not self.adv.active() and self.lo >= 15 and not (self.live.active(self.live.forced_off) or self.live.active(self.live.breaker_open) or self.live.active(self.live.valve_closed))
+            quiet = (m - self.last_net_ev) >= 15 and self.lo >= 15 and not (self.live.active(self.live.forced_off) or self.live.active(self.live.breaker_open) or self.live.active(self.live.valve_closed))
             if quiet and open_inc["status"] != "resolved":
                 open_inc["status"] = "contained" if open_inc["status"] == "open" else open_inc["status"]
                 if self.lo >= 30:
@@ -386,17 +448,12 @@ class Runtime:
         inc = dict(id=f"INC-{len(self.incidents)+1:03d}", t0=m, clock0=self.clock(), deadline=m + 360, status="open", escalated=[], evidence_nodes=[], physics=[],
                    p_max=round(obs["p"], 3), actions=[], next_hops=[], stages=[dict(stage="Detected", minute=m)], iso_cut_at=m, reported=False, planned_for=0,
                    cost=dict(), campaign=None, planning=False, detect_signals=dict(ae=obs["ae"], zmax=obs["zmax"], novelty=obs["novelty"], phys_z=obs["phys_z"]))
-        c = next(iter(self.adv.active()), None) or (self.adv.campaigns[-1] if self.adv.campaigns else None)
-        inc["campaign"] = c.id if c else None
         self.incidents.append(inc)
         # iso counterfactual: cut everything now
         if not self.iso_cut:
             self.iso_cut = True
             for pump in ("PS1", "PS2"):
                 self.iso.act("pump_duty", pump, int(ISOLATION_H * 60))
-            for camp in self.adv_iso.campaigns:
-                if camp.state not in ("done", "contained"):
-                    camp.state = "contained"
         self.note("incident_open", "crit", f"Incident {inc['id']} declared: attack probability {obs['p']:.0%}. CERT-In 6-hour clock started.", incident=inc["id"])
         return inc
 
@@ -501,7 +558,7 @@ class Runtime:
             prop["status"] = "applied"
             if inc:
                 inc["stages"].append(dict(stage="Cut made", minute=self.live.minute))
-            self.pending_verify = dict(minute=self.live.minute + 20, hops=sum(len(c.hops) for c in self.adv.campaigns), inc=prop["incident"], pid=pid)
+            self.pending_verify = dict(minute=self.live.minute + 20, start=self.live.minute, inc=prop["incident"], pid=pid)
             self.dirty = True
             return True
         if _locked:
@@ -542,16 +599,15 @@ class Runtime:
 
     def _verify(self, m):
         pv, self.pending_verify = self.pending_verify, None
-        hops_now = sum(len(c.hops) for c in self.adv.campaigns)
         inc = next((i for i in self.incidents if i["id"] == pv["inc"]), None)
-        progressed = hops_now > pv["hops"] and bool(self.adv.active())
+        progressed = self.last_net_ev > pv["start"] + 3          # odd traffic still showing up well after the response = it did not work
         if progressed and inc:
-            self.note("verify_failed", "warn", f"Verification failed: the attacker still progressed after {pv['pid']}. Re-planning with new evidence.", incident=inc["id"])
+            self.note("verify_failed", "warn", f"Verification failed: odd traffic is still showing up after {pv['pid']}. Re-planning with new evidence.", incident=inc["id"])
             inc["planned_for"] = 0
         else:
             if inc:
                 inc["stages"].append(dict(stage="Verified", minute=m))
-            self.note("verify_ok", "ok", f"Verified: no further attacker progress after {pv['pid']}.", incident=pv["inc"])
+            self.note("verify_ok", "ok", f"Verified: no more odd traffic after {pv['pid']}.", incident=pv["inc"])
 
 
     # ------------------------------------------------------------------ zero-day lab + RL responder
@@ -604,12 +660,14 @@ class Runtime:
             zd["suspected"] = True
             inc["stages"].append(dict(stage="Zero-day suspected", minute=self.live.minute))
             self.note("zero_day_suspected", "crit", f"Zero-day suspected for {inc['id']}: {', '.join(self.ward['assets'][n]['name'] for n in unexplained[:3]) or 'physical anomaly'} compromised with NO known weakness to explain it.", incident=inc["id"])
-            for lab in self.zd_lab:
-                if lab["status"] == "introduced":
-                    lab["status"], lab["detected_minute"], lab["incident"] = "suspected", self.live.minute, inc["id"]
         zd["unexplained"] = unexplained
         idx = [self.edge_index[e] for e in ev_edges if e in self.edge_index]
         zd["fingerprint"] = fingerprint(self.ward, idx, [self.rlcore.eid[e]["technique"] for e in ev_edges if e in self.rlcore.eid], "low-and-slow" if obs.get("zmax", 0) < 8 else "noisy", len(inc["evidence_nodes"]))
+
+    def _suspect_products(self, inc):
+        """Which product family to analyse: the inventory product of every device the Watchdog could not explain with a known weakness. Nothing about the attacker is read."""
+        node_prod = self.rlcore.node_prod
+        return {n: node_prod[n] for n in inc.get("zero_day", {}).get("unexplained", []) if n in node_prod}
 
     def _zd_pipeline(self, inc, m):
         """Zero-day pipeline (automatic): keep the incident state, capture + analyse samples, deploy family rules."""
@@ -624,15 +682,12 @@ class Runtime:
         for v in self.last_obs.get("violations", []):
             if v.get("node") in flag:
                 zs.phys_obs[flag[v["node"]]] = 1
-        lab_of = {n: lab["product"] for lab in self.zd_lab for n in lab["affected"]}
+        lab_of = self._suspect_products(inc)
         done_p = core.finish_analysis(zs, self.defence, self.zd_lib, m)
         if done_p:
             n = len(core.prod[done_p])
             inc["stages"].append(dict(stage="Family rule deployed", minute=m))
             self.note("zero_day_rule", "ok", f"Sample analysed: family rule deployed to all {n} device(s) of '{done_p}'. The library now recognises this exploit family.", incident=inc["id"])
-            for lab in self.zd_lab:
-                if lab["product"] == done_p:
-                    lab["status"], lab["family"] = "rule deployed", self.zd_lib.records[done_p]["family"]
             self.dirty = True
         started = core.auto_analyse(zs, self.zd_lib, lab_of, m)
         if started:
@@ -640,13 +695,26 @@ class Runtime:
             self.note("zero_day_sample", "warn", f"Exploit sample captured from the compromised device(s): analysing '{started}' (behavioural fingerprint, no signature).", incident=inc["id"])
         return zs, lab_of
 
-    def _rl_tick(self, m):
+    def _scorekeeper(self, m):
+        """SCOREBOARD (read-only for the defence, which never calls this): keeps the zero-day lab table up to date by comparing what the lab introduced with what the
+        defence has done. Nothing computed here feeds back into any defence decision."""
         for lab in self.zd_lab:
+            if lab["status"] == "introduced":
+                inc = next((i for i in self.incidents if i["t0"] >= lab["minute"] - 2 and i.get("zero_day", {}).get("suspected")), None)
+                if inc is not None:
+                    st = next((s["minute"] for s in inc["stages"] if s["stage"] == "Zero-day suspected"), m)
+                    lab["status"], lab["detected_minute"], lab["incident"] = "suspected", st, inc["id"]
+                    self.dirty = True
+            if lab["status"] in ("introduced", "suspected") and lab["product"] in self.zd_lib.records and self.zd_lib.learned(lab["product"]):
+                lab["status"], lab["family"] = "rule deployed", self.zd_lib.records[lab["product"]]["family"]
+                self.dirty = True
             if lab["status"] != "contained":
                 c = next((x for x in self.adv.campaigns if x.id == lab["campaign"]), None)
                 if c is not None and c.state in ("contained", "done") and (lab["status"] != "introduced" or not c.acted):
                     lab["status"] = "contained"
                     self.dirty = True
+
+    def _rl_tick(self, m):
         if self.autonomy == "observe" or m % DECISION_MIN != 0:
             return
         for inc in self.incidents:
@@ -661,7 +729,7 @@ class Runtime:
     def _ppo_step(self, inc, m):
         core = self.rlcore
         zs = inc["zs"]
-        lab_of = {n: lab["product"] for lab in self.zd_lab for n in lab["affected"]}
+        lab_of = self._suspect_products(inc)
         o = core.obs(zs, self.defence, self.live, self.zd_lib)
         mk = core.mask(zs, self.defence, self.live, self.zd_lib)
         a, _, _, probs = self.ppo.act(o, mk, deterministic=True)
@@ -828,9 +896,9 @@ class Runtime:
                 compare=dict(live=round(L.loss_composite()), none=round(self.none.loss_composite()), iso=round(self.iso.loss_composite()),
                              live_hh=round(L.lost["hh_h"]), none_hh=round(self.none.lost["hh_h"]), iso_hh=round(self.iso.lost["hh_h"]),
                              none_served=self.none.services()["served_frac"], iso_served=self.iso.services()["served_frac"],
-                             none_levels=dict(self.none.level), iso_levels=dict(self.iso.level), none_hosp=self.none.services()["hospitals"], iso_hosp=self.iso.services()["hospitals"]),
+                             none_cum=self.none.services()["cum"], iso_cum=self.iso.services()["cum"], none_levels=dict(self.none.level), iso_levels=dict(self.iso.level), none_hosp=self.none.services()["hospitals"], iso_hosp=self.iso.services()["hospitals"]),
                 stopped=self.stopped, paused=self.paused,
-                watch=dict(**self._heartbeat(), p=round(self.last_p, 3), ae=self.last_obs.get("ae"), zmax=self.last_obs.get("zmax"), novelty=self.last_obs.get("novelty"), phys_z=self.last_obs.get("phys_z"),
+                watch=dict(**self._heartbeat(), cusum=round(self.watchdog.cs, 2), cusum_line=round(getattr(self.watchdog, "cs_h", 0), 2), hits=self.hi, flood=bool(getattr(self, "flood_active", False)), p=round(self.last_p, 3), ae=self.last_obs.get("ae"), zmax=self.last_obs.get("zmax"), novelty=self.last_obs.get("novelty"), phys_z=self.last_obs.get("phys_z"),
                            violations=[dict(rule=v["rule"], text=v["text"], node=v["node"]) for v in self.last_obs.get("violations", [])][:4],
                            evidence=self.last_obs.get("evidence", [])[:3], drift_events=self.watchdog.drift_events),
                 nodes=nodes,
@@ -843,7 +911,7 @@ class Runtime:
                 brk_ops=rep.get("BRK_OPS_10M", 0), learned=self.watchdog.drift_events,
             )
             if role in ("analyst", "admin"):
-                snap["adversary"] = [c.public() for c in self.adv.campaigns[-3:]]
+                snap["adversary"] = [c.public() for c in self.adv.campaigns[-8:]]
             reveal = role in ("analyst", "admin")
             inc_open = next((i for i in reversed(self.incidents) if i["status"] in ("open", "contained", "resolved")), None)
             snap["zero_day"] = dict(

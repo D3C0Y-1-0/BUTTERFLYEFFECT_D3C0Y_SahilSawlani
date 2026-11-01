@@ -77,7 +77,7 @@ function disc(text: string, fill: string, size = 56) {
 type NodeObj = { id: string; asset: any; mesh: THREE.Object3D; city: THREE.Vector3; stack: THREE.Vector3; cur: THREE.Vector3; ring: THREE.Mesh; mat: THREE.MeshStandardMaterial; icon: THREE.Sprite };
 
 export class CityScene {
-  el: HTMLElement; onPick: (id: string | null) => void; onLocked: () => void = () => {}; onHover: (id: string | null) => void = () => {}; onQuality: (q: number) => void = () => {};
+  el: HTMLElement; onPick: (id: string | null) => void; onLocked: () => void = () => {}; onHover: (id: string | null) => void = () => {}; onQuality: (q: number) => void = () => {}; onUserMove: () => void = () => {}; badges = new Map<string, { sp: THREE.Sprite; kind: string }>(); discs = new Map<string, THREE.Mesh>();
   renderer: THREE.WebGLRenderer; scene = new THREE.Scene(); camera: THREE.PerspectiveCamera; controls: OrbitControls;
   st: any; geo: any; snap: any = null; ana: any = null; ui: any = { mode: "city", layers: {}, selected: null, xray: false, pathNodes: [], pathEdges: [], pathKind: "none" };
   nodes = new Map<string, NodeObj>(); phys = new Map<string, any>(); cyberEdges: any[] = [];
@@ -104,7 +104,7 @@ export class CityScene {
     this.controls.target.set(90, 0, 0);
     this.controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };   // hold + drag = move the map, right-hold + drag = turn it, wheel = zoom
     this.controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
-    this.controls.addEventListener("start", () => { this.camGoal = null; });
+    this.controls.addEventListener("start", () => { this.camGoal = null; this.onUserMove(); });
     this.scene.background = this.sky(); this.scene.fog = new THREE.FogExp2(0xDDE9EF, 0.00022);
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0xe6dccb, 2.0));
     const d = new THREE.DirectionalLight(0xfff4e6, 0.95); d.position.set(-180, 280, 140); this.scene.add(d);
@@ -131,7 +131,7 @@ export class CityScene {
     const t = e.target as HTMLElement; if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (t && ["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(t.tagName)) return;
     if (t && t.closest && t.closest(".side")) return;
-    const k = e.key.toLowerCase(); if (["w", "a", "s", "d", "q", "e", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) { this.keys.add(k); this.camGoal = null; e.preventDefault(); }
+    const k = e.key.toLowerCase(); if (["w", "a", "s", "d", "q", "e", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) { this.keys.add(k); this.camGoal = null; this.onUserMove(); e.preventDefault(); }
   };
   onKeyUp = (e: KeyboardEvent) => { this.keys.delete(e.key.toLowerCase()); };
   nudge(right: number, fwd: number, up = 0) {
@@ -574,7 +574,8 @@ export class CityScene {
   applyState(time: number, dt: number) {
     const s = this.snap; if (!s) return; const ui = this.ui;
     const rrw: Record<string, number> = {}; let mx = 1; if (this.ana?.ranking) for (const r of this.ana.ranking) { rrw[r.id] = r.rrw; mx = Math.max(mx, r.rrw); }
-    const sel = ui.selected; const adv = new Set<string>((s.adversary || []).flatMap((c: any) => c.compromised)); const hot = ui.hotNodes ? new Set<string>(ui.hotNodes) : null;
+    const sel = ui.selected; const affectedNow = (s.incidents || []).some((i: any) => i.status === "open" || i.status === "contained") || (s.adversary || []).some((c: any) => c.state !== "done" && c.state !== "contained");   // once the incident is resolved the map goes back to normal
+    const adv = new Set<string>(affectedNow ? (s.adversary || []).flatMap((c: any) => c.compromised) : []); const hot = ui.hotNodes ? new Set<string>(ui.hotNodes) : null;
     const pathSet = new Set<string>(this.pathIds); const pathOn = pathSet.size >= 1; const seeAdv = ["analyst", "admin", "operator"].includes(ui.role);
     for (const n of this.nodes.values()) {
       const st = s.nodes?.[n.id] || "normal"; const r = (rrw[n.id] || 0) / mx; const lcol = LAYER_COL[n.asset.layer] ?? N.aquaD; let col = new THREE.Color(lcol), em = 0;
@@ -582,12 +583,29 @@ export class CityScene {
       if (pathOn && pathSet.has(n.id)) { col = new THREE.Color(ui.pathKind === "defence" ? N.aquaD : HOT); em = 0.3; }
       if (st === "suspect") { col = new THREE.Color(N.apricot); em = 0.3 + Math.sin(time * 6) * 0.2; }
       if (st === "quarantined") { col = new THREE.Color(N.sand); }
-      if (seeAdv && adv.has(n.id) && n.id !== "INTERNET") { col = new THREE.Color(HOT); em = 0.45 + Math.sin(time * 8) * 0.25; }
+      if (seeAdv && adv.has(n.id) && n.id !== "INTERNET" && st !== "quarantined") { col = new THREE.Color(HOT); em = 0.45 + Math.sin(time * 8) * 0.25; }
       const bp = ui.blast ? ui.blast[n.id] : undefined; if (bp !== undefined && n.id !== ui.selected) { col = new THREE.Color(HOT).lerp(new THREE.Color(N.apricot), 1 - Math.min(1, bp * 1.6)); em = 0.35 + Math.sin(time * 5) * 0.15; }
       n.mat.color.lerp(col, 0.25); n.mat.emissive.lerp(col, 0.25); n.mat.emissiveIntensity = em;
       const dim = pathOn ? (pathSet.has(n.id) ? 1 : 0.22) : sel && sel !== n.id && !(hot && hot.has(n.id)) ? 0.4 : 1; n.mat.opacity += (dim - n.mat.opacity) * 0.2; n.mat.transparent = n.mat.opacity < 0.99; (n.icon.material as THREE.SpriteMaterial).opacity = Math.max(0.35, n.mat.opacity);
       const sc = (n.id === sel ? 1.5 : n.id === this.hoverId ? 1.25 : 1) * (1 + (r > 0.6 ? 0.2 : 0)); n.mesh.scale.lerp(new THREE.Vector3(sc, sc, sc), 0.2);
-      const rm = n.ring.material as THREE.MeshBasicMaterial; rm.opacity = st === "quarantined" ? 0.9 : st === "suspect" ? 0.6 + 0.3 * Math.sin(time * 6) : n.id === sel ? 0.95 : 0; rm.color.set(st === "quarantined" ? N.aquaD : n.id === sel ? N.ink : HOT);
+      const rm = n.ring.material as THREE.MeshBasicMaterial; rm.opacity = st === "quarantined" ? 0.9 : st === "suspect" ? 0.6 + 0.3 * Math.sin(time * 6) : seeAdv && adv.has(n.id) && n.id !== "INTERNET" ? 0.95 : n.id === sel ? 0.95 : 0; rm.color.set(st === "quarantined" ? N.aquaD : n.id === sel ? N.ink : HOT);
+    }
+    // status badges: a big, unmistakable marker above every device that is taken over, suspected or cut off
+    for (const n of this.nodes.values()) {
+      if (n.id === "INTERNET") continue; const stt = s.nodes?.[n.id] || "normal";
+      const kind = stt === "quarantined" ? "cut" : seeAdv && adv.has(n.id) ? "taken" : stt === "suspect" ? "suspect" : "";
+      let b = this.badges.get(n.id);
+      if (kind && (!b || b.kind !== kind)) {
+        if (b) { this.root.remove(b.sp); b.sp.material.dispose(); }
+        const sp = disc(kind === "taken" ? "!" : kind === "suspect" ? "?" : "✓", kind === "taken" ? "#E11D48" : kind === "suspect" ? "#F28C1B" : "#2F7A84", 64); sp.scale.set(8.5, 8.5, 1); this.root.add(sp); b = { sp, kind }; this.badges.set(n.id, b);
+      }
+      if (b) { b.sp.visible = !!kind; if (kind) { b.sp.position.set(n.cur.x, n.cur.y + 13 + (kind === "taken" ? Math.sin(time * 6) * 0.9 : 0), n.cur.z); const k2 = kind === "taken" ? 1 + 0.12 * Math.sin(time * 6) : 1; b.sp.scale.set(8.5 * k2, 8.5 * k2, 1); } }
+    }
+    if (seeAdv) {   // affected area: a soft red disc on the ground under every device the attacker holds
+      for (const id of adv) { if (id === "INTERNET" || s.nodes?.[id] === "quarantined") continue; const n = this.nodes.get(id); if (!n) continue; let d = this.discs.get(id);
+        if (!d) { d = new THREE.Mesh(new THREE.CircleGeometry(18, 40), new THREE.MeshBasicMaterial({ color: HOT, transparent: true, opacity: 0.16, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 })); d.rotation.x = -Math.PI / 2; d.renderOrder = 4; this.root.add(d); this.discs.set(id, d); }
+        d.position.set(n.cur.x, 0.5, n.cur.z); d.visible = true; (d.material as THREE.MeshBasicMaterial).opacity = 0.12 + 0.07 * Math.sin(time * 4); }
+      for (const [id, d] of this.discs) if (!adv.has(id) || s.nodes?.[id] === "quarantined") d.visible = false;
     }
     const lv = s.levels || {}, served = s.services?.zones || {}, hosp = s.services?.hospitals || {}, forced = s.forced || {}, feeders = s.services?.feeders || {};
     for (const t of ["T1", "T2"]) { const p = this.phys.get(t); if (!p || !p.liq) continue; const f = Math.max(0.02, (lv[t] ?? 6) / 8); p.liq.scale.y += (f - p.liq.scale.y) * 0.15; p.liq.position.y = (p.H * p.liq.scale.y) / 2; p.liqMat.color.set(lv[t] < 2.5 ? N.terra : lv[t] < 4 ? N.apricot : N.aquaM); }
@@ -622,7 +640,8 @@ export class CityScene {
       for (let i = 0; i < 3; i++) { const r = new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 64), new THREE.MeshBasicMaterial({ color: HOT, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false, depthTest: false })); r.rotation.x = -Math.PI / 2; r.renderOrder = 22; this.blastMesh.add(r); }
       this.root.add(this.blastMesh);
     }
-    const reach = Math.max(30, ...Object.keys(this.ui.blast).map((id) => { const q = this.posOf(id); return q ? q.distanceTo(c) : 0; }));
+    const near = Object.keys(this.ui.blast).filter((id) => this.st.assets[id]).map((id) => { const q = this.posOf(id); return q ? q.distanceTo(c) : 0; });   // devices only: far Mumbai sites must not stretch the rings
+    const reach = Math.min(46, Math.max(22, ...near));
     this.blastMesh.visible = true; this.blastMesh.position.set(c.x, 0.7, c.z);
     this.blastMesh.children.forEach((r: any, i) => { const k = ((time * 0.35 + i / 3) % 1); r.scale.setScalar(6 + k * reach * 1.05); r.material.opacity = 0.55 * (1 - k); });
   }

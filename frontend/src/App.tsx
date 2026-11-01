@@ -140,7 +140,7 @@ function zoomTour(key: string, st: any) {
 }
 
 function MapOverlay() {
-  const layers = useStore((s) => s.layers), stack = useStore((s) => s.stack), xray = useStore((s) => s.xray), toast_ = useStore((s) => s.toast), connected = useStore((s) => s.connected), full = useStore((s) => s.full), graph = useStore((s) => s.graph), snap = useStore((s) => s.snap);
+  const view = useStore((s) => s.view), follow = useStore((s) => s.follow); const layers = useStore((s) => s.layers), stack = useStore((s) => s.stack), xray = useStore((s) => s.xray), toast_ = useStore((s) => s.toast), connected = useStore((s) => s.connected), full = useStore((s) => s.full), graph = useStore((s) => s.graph), snap = useStore((s) => s.snap);
   const [pad, setPad] = useState(false);
   const S = () => scene.current;
   const tog = (key: string) => setState((s) => ({ layers: { ...s.layers, [key]: !s.layers[key] } }));
@@ -158,6 +158,7 @@ function MapOverlay() {
       <div className="maptools">{tools.map(([ic, tip, on, fn]) => <button key={tip} className={"mapbtn" + (on ? " on" : "")} data-tip={tip} aria-label={tip} aria-pressed={on} onClick={fn}><Ic n={ic} />{ic === "mask" && decoys > 0 && <b className="badge">{decoys}</b>}</button>)}</div>
       <div className="views">{[["overview", "Overview"], ["hospital", "Hospitals"], ["water", "Water plants"], ["power", "Power"], ["mumbai", "Mumbai"]].map(([v, l]) => <button key={v} onClick={() => { setState({ stack: false, focus: null, selected: null }); if (TOURS[v]) zoomTour(v, getState().st); else S()?.flyTo(v); }}>{l}</button>)}</div>
       <IncidentCard />
+      {view === "defend" || view === "zeroday" ? <button className={"followbtn" + (follow ? " on" : "")} onClick={() => setState({ follow: !follow, focus: null })}>{follow ? "● Following the attack (drag the map to stop)" : "Follow the attack"}</button> : null}
       {pad && <div className="pad" aria-label="Move the map">
         <PadBtn icon="rotl" tip="Turn left" fn={() => S()?.turn(0.08)} /><PadBtn icon="up" tip="Move forward" fn={() => S()?.nudge(0, 0.08)} /><PadBtn icon="rotr" tip="Turn right" fn={() => S()?.turn(-0.08)} />
         <PadBtn icon="left" tip="Move left" fn={() => S()?.nudge(-0.08, 0)} /><button aria-label="Reset view" title="Reset view" onClick={() => S()?.flyTo("overview")}><Ic n="target" /></button><PadBtn icon="right" tip="Move right" fn={() => S()?.nudge(0.08, 0)} />
@@ -177,7 +178,7 @@ function SceneHost({ hidden }: { hidden: boolean }) {
   useEffect(() => {
     if (!st || !geo || !host.current) return;
     const sc = new CityScene(host.current, (id) => pickNode(getState().st, id)); scene.current = sc;
-    sc.onLocked = () => toast("ok", "This district is locked for now");
+    sc.onUserMove = () => { if (getState().follow) { setState({ follow: false }); toast("ok", "Following stopped. Press Follow the attack to resume."); } };
     sc.onHover = (id) => setState({ hovered: id }); sc.onQuality = (q) => setState({ quality: q }); sc.setStatic(st, geo);
     return () => { sc.dispose(); scene.current = null; };
   }, [st, geo]);
@@ -199,8 +200,15 @@ function SceneHost({ hidden }: { hidden: boolean }) {
     scene.current?.setUI({ mode: stack ? "stack" : "city", layers, selected: labOn ? labNodes[0] : sel, xray, pathNodes: draw.nodes, pathEdges: draw.edges, pathSegs: draw.segs, pathMarks: draw.marks, pathKind: draw.kind, blast: focus?.blast || null, role, hotNodes: labOn ? labNodes : sel ? st.edges.filter((e: any) => e.source === sel || e.target === sel).flatMap((e: any) => [e.source, e.target]) : null });
   }, [stack, layers, sel, xray, dkey, role, st, view, labNodes, focus?.blast]);
   useEffect(() => { if (view === "path" && pathSel && !focus) scene.current?.flyTo("path"); }, [view, pathSel]);
-  const campId = view === "defend" || view === "zeroday" ? [...(snap?.adversary || [])].reverse().find((c: any) => c.state !== "done" && c.state !== "contained")?.id : null;
-  useEffect(() => { if (campId && !getState().focus) { const c = snap.adversary.find((x: any) => x.id === campId); scene.current?.frameNodes([...c.compromised.filter((n: string) => n !== "INTERNET"), c.entry].filter(Boolean)); } }, [campId, view]);
+  // Follow the attack: first the public side and the door being tried, then each new step as it happens, then the whole affected area. Any drag, zoom or key press stops it.
+  const follow = useStore((s) => s.follow);
+  const camp = view === "defend" || view === "zeroday" ? [...(snap?.adversary || [])].reverse()[0] : null; const stepKey = camp ? `${camp.id}:${camp.compromised.length}:${camp.state}` : "";
+  useEffect(() => {
+    if (!follow || !camp || getState().focus) return; const comp: string[] = camp.compromised; const finished = camp.state === "done" || camp.state === "contained";
+    if (finished && comp.length > 1) scene.current?.frameNodes(comp.filter((n) => n !== "INTERNET"));
+    else if (comp.length <= 1) scene.current?.frameNodes(["INTERNET", camp.entry].filter(Boolean) as string[]);
+    else { const h = camp.hops[camp.hops.length - 1]; if (h) scene.current?.frameNodes([h.src, h.dst], true); }
+  }, [follow, stepKey]);
   useEffect(() => { if (focus) scene.current?.frameNodes([...(focus.route?.nodes || []), ...(focus.marks || [])]); }, [focus?.key]);
   useEffect(() => { if (sel && !getState().focus) scene.current?.flyTo("node", sel); }, [sel]);
   return <div className="stage" ref={host} />;

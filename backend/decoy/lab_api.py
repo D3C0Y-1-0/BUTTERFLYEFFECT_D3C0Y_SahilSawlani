@@ -2,6 +2,7 @@
 Same guards as the rest of the app: signed token, role check, strict pydantic validation. Simulations run on copies; the baseline is never modified."""
 from __future__ import annotations
 
+import json
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
@@ -11,6 +12,7 @@ from .lab import Controls, RULES, simulate_compromise
 from .lab_scenarios import SCENARIO_LIST, run_scenario
 
 ID = r"^[A-Za-z0-9_:\-\.]{1,64}$"
+_FORECAST: dict = {}
 IDS = Field(default_factory=list, max_length=60)
 
 
@@ -138,6 +140,10 @@ def make_router(state, user_for) -> APIRouter:
         """Prediction: which devices are most likely to be attacked next, why, and the best next step for each."""
         need_model()
         L = lab()
+        key = (top, json.dumps(L.session.to_json(), sort_keys=True), tuple(sorted(L.anomaly())))   # same controls and same evidence = same answer: reopening the page costs nothing
+        hit = _FORECAST.get(key)
+        if hit is not None:
+            return hit
         rows = sorted(L.ranking(L.session), key=lambda x: -x["likelihood"])[:top]
         out = []
         for x in rows:
@@ -146,8 +152,10 @@ def make_router(state, user_for) -> APIRouter:
             out.append(dict(id=x["id"], name=x["name"], likelihood=x["likelihood"], risk=x["risk"], impact=x["impact"], main_reason=why["drivers"][0]["group"],
                             reaches=len(why["reachable_from_asset"]), services_lost=why["services_lost"], steps=[dict(label=q["label"], cost=q["cost"], reduction=q["reduction"], apply=q["apply"]) for q in rec]))
         meta = L.state["meta"]
-        return dict(items=out, accuracy=dict(spearman=meta["spearman_heldout"], mae=meta["mae_heldout"], top5_overlap=meta.get("top5_overlap_heldout"), test_rows=meta["test_rows"],
+        res = dict(items=out, accuracy=dict(spearman=meta["spearman_heldout"], mae=meta["mae_heldout"], top5_overlap=meta.get("top5_overlap_heldout"), test_rows=meta["test_rows"],
                                              note="Measured on control configurations the model never saw during training. Labels come from the simulated attack worlds, so this is accuracy against the simulator, not against real incidents."))
+        _FORECAST.clear(); _FORECAST[key] = res
+        return res
 
     @r.get("/impact")
     def impact(node: str = Query(pattern=ID), start: float = Query(default=6.0, ge=0, le=23), u=Depends(user_for("risk"))):

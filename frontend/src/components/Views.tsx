@@ -1,15 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { setState, toast, useStore } from "../store";
+import { getState, setState, toast, useStore } from "../store";
 import { C, riskColor } from "../palette";
 import { Bars, fmt, Gantt, Heartbeat, Hist, k, LineChart, marksOn, Ring, RiskTrio, Slope, Timeline } from "./Charts";
 import { Box, Check, Ic, Move, Num, PageHead, Stat, Steps, Switch } from "./ui";
 import { assumeBreach } from "../routes";
 import { pickNode, showEdges, showFix, showFixes, showTarget, showTargets, showRoute, showNodeRoute } from "../focus";
 import { brief, can, nameOf, plainMove, statusOf } from "./status";
-import { AttackScore, SeverityRisk } from "./Score";
+import { AttackScore, SeverityRisk, SwarmChart } from "./Score";
 
 export { can };
+const getExp = () => getState().exp;
 const ctrlTarget = (st: any, ctrl: string) => { const a: any = Object.values(st.actions).find((x: any) => x.controller === ctrl); if (!a) return null; return a.kind === "breaker_open" ? "CB_" + a.target : a.target; };
 const actionOf = (st: any, ctrl: string) => Object.entries(st.actions).find(([, x]: any) => x.controller === ctrl)?.[0] as string | undefined;
 const cut = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s);
@@ -179,19 +180,24 @@ export function FixView() {
 }
 
 /* ================================================================== DEFEND */
-const ATTACKS: [string, string][] = [["standard", "Known exploit from the internet"], ["spoof", "Fake sensor readings"], ["wear", "Breaker wear"], ["insider", "Insider already inside the network"]];
+const ATTACKS: [string, string][] = [["standard", "Known exploit from the internet"], ["spoof", "Fake sensor readings"], ["wear", "Breaker wear"], ["insider", "Insider already inside the network"], ["swarm", "Many small attacks (each below the alarm line)"], ["blitz", "Fast and loud attacker (races the defence)"], ["ddos", "DDoS flood on the public services"], ["group", "Coordinated group: 3 attackers + a flood"]];
 const STAGE_LABELS = ["Detected", "Predicted", "Cut", "Verified", "Recovered"]; const STAGE_KEYS = ["Detected", "Predicted route", "Cut made", "Verified", "Recovered"];
 
 export function DefendView() {
   const snap = useStore((s) => s.snap), st = useStore((s) => s.st), role = useStore((s) => s.role), hist = useStore((s) => s.hist), marks = useStore((s) => s.marks);
-  const [mode, setMode] = useState("standard"); const [entry, setEntry] = useState(""); const [goal, setGoal] = useState("");
+  const [mode, setMode] = useState("swarm"); const entry = useStore((s) => s.atkEntry), goal = useStore((s) => s.atkGoal), pick = useStore((s) => s.pick); const setEntry = (x: string) => setState({ atkEntry: x }), setGoal = (x: string) => setState({ atkGoal: x });
   const stt = statusOf(snap); const incs = snap.incidents || []; const inc = [...incs].reverse().find((i: any) => i.status !== "reported") || null;
   const props = (snap.proposals || []).filter((p: any) => p.status === "pending");
-  const entries = Object.values<any>(st.assets).filter((a) => mode === "insider" ? ["it", "dmz", "control"].includes(a.layer) && a.exposure !== "internet" : a.entry_weight > 0); const goals = Object.values<any>(st.actions);
+  const entries = Object.values<any>(st.assets).filter((a) => a.id !== "INTERNET"); const goals = Object.values<any>(st.actions);
   const cutN = (snap.defence.quarantined?.length || 0) + (snap.defence.blocked?.length || 0); const total = Object.keys(st.assets).length - 1;
   const w = snap.watch; const h = hist.slice(-120); const live = inc && inc.status !== "reported";
   const done = (() => { if (!live) return 0; let n = 0; for (const key of STAGE_KEYS) { if (inc.stages.some((x: any) => x.stage === key)) n++; else break; } return n; })();
-  const camp = [...(snap.adversary || [])].reverse()[0]; const blockedE = new Set<string>(snap.defence.blocked || []);
+  const camp = [...(snap.adversary || [])].reverse()[0];
+  const lastStart = camp ? camp.started : 0; const swarm: any[] = (snap.adversary || []).filter((c: any) => c.started === lastStart); const swarmStart = swarm.length ? Math.min(...swarm.map((c: any) => c.started)) : 0;
+  const alarmOn = !!inc && inc.status !== "reported"; const swarmTaken = swarm.reduce((a2: number, c: any) => a2 + Math.max(0, c.compromised.length - 1), 0);
+  const swarmState = !swarm.length ? { label: "no attack yet", tone: "info" } : stt.key === "recovered" ? { label: "handled", tone: "safe" } : alarmOn ? { label: "ATHENA responding", tone: "watch" } : swarm.some((c: any) => c.state !== "done" && c.state !== "contained") ? { label: "attackers quiet", tone: "crit" } : { label: "over", tone: "safe" };
+  const mmin = (m: number) => (m < 60 ? `${Math.max(0, Math.round(m))} min` : `${Math.floor(m / 60)} h ${Math.round(m % 60)} min`);
+  const STAGE_PLAIN: Record<string, string> = { Detected: "Alarm raised", "Predicted route": "Next steps predicted", "Cut made": "Cut made", Verified: "Checked: attackers gone", Recovered: "Service restored" };
   return (
     <>
       <PageHead icon="shield" title="Live defence" sub="Watch ATHENA stop an attack" right={<span className={"pill " + stt.tone + (stt.key === "attack" ? " pulse" : "")}>{stt.label}</span>} />
@@ -205,12 +211,18 @@ export function DefendView() {
       {can(role, "analyst") && (
         <Box id="launch" title="Simulate an attack" icon="bolt" value={snap.autopilot ? "autopilot on" : "manual"} defaultOpen>
           <select value={mode} onChange={(e) => { setMode(e.target.value); setEntry(""); }} aria-label="Attack type">{ATTACKS.map(([m, t]) => <option key={m} value={m}>{t}</option>)}</select>
-          <button className="btn primary big" onClick={() => api("/api/attack", { body: { mode, entry: entry || null, goal: goal || null } }).then(() => { toast("warn", mode === "insider" ? "Insider attack launched (starts inside)" : "Attack launched (simulation)"); setState({ side: true }); })}>Launch attack</button>
+          <div className="tip"><b>1.</b> Choose the device the attack starts from: any device in the list, or click it on the map.</div>
+          <div className="row"><select className="grow" value={entry} onChange={(e) => setEntry(e.target.value)} aria-label="Entry device"><option value="">Choose a device…</option>{entries.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+            <button className={"btn small" + (pick === "entry" ? " primary" : "")} onClick={() => setState({ pick: pick === "entry" ? null : "entry" })}>{pick === "entry" ? "Click the map…" : "Pick on map"}</button></div>
+          <button className="btn primary big" disabled={!entry} onClick={() => api("/api/attack", { body: { mode, entry, goal: goal || null } }).then(() => { toast("warn", "Attack launched from " + nameOf(st, entry)); setState({ side: true, follow: true, focus: null, selected: null, pick: null }); })}>{entry ? `Launch attack from ${cut(nameOf(st, entry), 22)}` : "Choose a device to launch"}</button>
           {mode === "insider" && <div className="tip">An insider already holds an office or control machine, so there is no internet step to block. ATHENA has to notice the odd movement or the physical effect instead.</div>}
           <div className="row between"><span style={{ fontSize: 12.5 }}>Attacks by themselves</span>{can(role, "operator") ? <Switch on={!!snap.autopilot} label="Autopilot adversary" onChange={() => api("/api/autopilot", { body: { on: !snap.autopilot } })} /> : <span className="pill info">{snap.autopilot ? "on" : "off"}</span>}</div>
-          <details><summary className="tip" style={{ cursor: "pointer" }}>Choose entry and target</summary>
-            <div className="col" style={{ marginTop: 6 }}><select value={entry} onChange={(e) => setEntry(e.target.value)} aria-label="Entry"><option value="">{mode === "insider" ? "Starts on: any internal machine" : "Entry: any exposed device"}</option>{entries.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
-              <select value={goal} onChange={(e) => setGoal(e.target.value)} aria-label="Target"><option value="">Target: any controller</option>{goals.map((a: any) => <option key={a.controller} value={a.controller}>{a.label}</option>)}</select></div></details>
+          <details open={!!goal || pick === "goal"}><summary className="tip" style={{ cursor: "pointer" }}>Optional: choose the target too</summary>
+            <div className="col" style={{ marginTop: 6 }}>
+              <div className="row"><select className="grow" value={goal} onChange={(e) => setGoal(e.target.value)} aria-label="Target"><option value="">Target: the attacker picks the easiest controller</option>{goals.map((a: any) => <option key={a.controller} value={a.controller}>{a.label}</option>)}</select>
+                <button className={"btn small" + (pick === "goal" ? " primary" : "")} onClick={() => setState({ pick: pick === "goal" ? null : "goal" })}>{pick === "goal" ? "Click the map…" : "Pick on map"}</button></div>
+              <div className="tip">An entry that faces the internet is attacked from outside; an internal device means the attacker already holds it. {(entry || goal) && <a style={{ cursor: "pointer", color: C.terraD, fontWeight: 700 }} onClick={() => setState({ atkEntry: "", atkGoal: "", pick: null, focus: null })}>Clear</a>}</div>
+            </div></details>
         </Box>)}
       {props.map((p: any) => (
         <Box key={p.id} id={"prop" + p.id} title="Needs your OK" icon="check" value={`saves ${k(Math.max(0, p.observe_J - p.plan_J))}`} tone="watch" kind="warm" defaultOpen>
@@ -218,28 +230,29 @@ export function DefendView() {
           <div className="grid3"><Stat v={k(p.observe_J)} l="do nothing" color={C.terra} /><Stat v={k(p.plan_J)} l="this plan" color={C.aquaD} /><Stat v={k(p.isolate_all_J)} l="cut everything" color={C.apricot} /></div>
           {can(role, "operator") && <div className="row"><button className="btn heal grow" onClick={() => { showTargets(st, p.steps.map((s: any) => s.target)); api(`/api/proposal/${p.id}/approve`, { method: "POST" }).then((r) => toast(r.status === "awaiting_second" ? "warn" : "ok", r.status === "awaiting_second" ? "A second person must approve" : "Plan applied")); }}>Approve</button><button className="btn danger" onClick={() => api(`/api/proposal/${p.id}/reject`, { method: "POST" })}>Reject</button></div>}
         </Box>))}
-      {camp && (
-        <Box id="atk" title="1 · The attack, step by step" icon="bolt" value={`${Math.max(0, camp.compromised.length - 1)} device${camp.compromised.length === 2 ? "" : "s"} reached`} tone="crit" defaultOpen>
-          <div className="tip">{camp.mode === "insider" ? "Insider: starts inside, no internet hop." : "Starts on the internet."} The route is drawn in red on the map.</div>
-          {camp.hops.length === 0 && <div className="tip">{camp.state === "done" || camp.state === "contained" ? "The attacker was stopped at the front door: it never got past its first step." : "The attacker is still looking around…"}</div>}
-          {camp.hops.map((h: any, i: number) => <div key={i} className="row" style={{ fontSize: 12.5, cursor: "pointer" }} onClick={() => showEdges(st, [h.edge], "attack")}><span className="num-chip" style={{ width: 20, height: 20, fontSize: 11 }}>{i + 1}</span><span className="grow">{nameOf(st, h.dst)}</span>{blockedE.has(h.edge) ? <span className="pill safe">link cut</span> : snap.defence.quarantined?.includes(h.dst) ? <span className="pill safe">cut off</span> : <span className="pill crit">taken</span>}<span className="dim" style={{ fontSize: 11 }}>+{Math.max(0, h.minute - camp.started)} min</span></div>)}
-          {live && inc.next_hops?.length > 0 && <div className="tip">ATHENA predicted the next step: <b>{nameOf(st, inc.next_hops[0].dst)}</b> ({(inc.next_hops[0].p * 100).toFixed(0)}%) and moved to block it.</div>}
-        </Box>)}
-      {live && (inc.actions.length > 0 || inc.next_hops?.length > 0) && (
-        <Box id="did" title="2 · What ATHENA did" icon="check" value={`${inc.actions.length} actions`} tone="safe" defaultOpen>
-          {inc.actions.map((a: any, i: number) => <div key={i} className="row" style={{ fontSize: 12.5, cursor: "pointer" }} onClick={() => showTarget(st, a.target, inc.evidence_nodes)}><span style={{ color: C.aquaD }}><Check /></span><span className="grow"><Move label={a.label} detail={<>Done by {a.actor}{a.safety ? " · " + a.safety : ""} · minute {a.minute}</>} /></span></div>)}
-          {inc.next_hops?.length > 0 && <><b style={{ fontSize: 12 }}>Where it may go next</b>{inc.next_hops.slice(0, 2).map((n: any) => <div key={n.edge} className="row" style={{ cursor: "pointer" }} onClick={() => showEdges(st, [n.edge], "predicted")}><span style={{ width: 130, fontSize: 12 }}>{cut(nameOf(st, n.dst), 18)}</span><div className="bar grow"><div style={{ width: `${n.p * 100}%`, background: C.apricot }} /></div><b style={{ width: 34, textAlign: "right", fontSize: 12 }}>{(n.p * 100).toFixed(0)}%</b></div>)}</>}
-        </Box>)}
-      <Box id="kept" title="3 · How well it worked" icon="home" value={camp ? `${cutN} of ${total} cut off` : "no attack yet"} tone="safe" defaultOpen>
-        <AttackScore snap={snap} st={st} hist={hist} />
-      </Box>
-      <Box id="why" title="Why the alarm rang" icon="eye" value={`${((w.shown ?? w.p) * 100).toFixed(0)}%`} tone={(w.shown ?? w.p) > 0.85 ? "crit" : (w.shown ?? w.p) > 0.4 ? "watch" : "safe"}>
-        <Heartbeat data={h.map((x) => x.p)} h={46} color={(w.shown ?? w.p) > 0.85 ? C.terra : C.aquaD} thr={0.85} marks={marksOn(h, marks)} />
-        {marks.length > 0 && <div className="tip">Circles on the line are your actions: {[...new Set(marks.slice(-4).map((m) => m.label))].join(", ")}.</div>}
-        {w.note && <div className="tip"><b>{w.phase === "healing" ? "Healing: " : ""}</b>{w.note}</div>}
-        <div className="grid3"><Stat v={w.ae?.toFixed?.(1) ?? "–"} l="odd traffic" /><Stat v={w.novelty} l="new links" /><Stat v={w.phys_z} l="physics score" /></div>
-        {w.violations?.map((v: any, i: number) => <div key={i} className="pill crit" style={{ whiteSpace: "normal" }}>⚠ {cut(v.text, 90)}</div>)}
-        {!w.violations?.length && <div className="tip">Two checks run together: network behaviour and the laws of physics.</div>}
+      <Box id="module" title="Many small attacks: what ATHENA did" icon="layers" value={swarmState.label} tone={swarmState.tone} defaultOpen>
+        <div className="tip">Several quiet attackers hit different doors at once. Each one stays below the alarm line on its own. ATHENA adds up their small signs, raises one alarm, cuts what they share, and checks that it worked. Choose <b>Many small attacks</b> above and launch.</div>
+        <div className="swarm-grid">{swarm.map((c: any, i: number) => { const cutDoor = (snap.defence.quarantined || []).includes(c.entry) || c.state === "contained"; return (
+          <div key={c.id} className={"swarm-card" + (cutDoor ? " cut" : "")} onClick={() => setState({ focus: { key: "sw" + c.id, kind: cutDoor ? "defence" : "attack", marks: c.compromised.filter((n: string) => n !== "INTERNET") } })}>
+            <b>Attacker {i + 1}</b><span>{nameOf(st, c.entry)}</span>
+            <small>{Math.max(0, c.compromised.length - 1)} device{c.compromised.length === 2 ? "" : "s"} taken</small>
+            <em className={cutDoor ? "ok" : alarmOn ? "warn" : "quiet"}>{cutDoor ? "stopped" : alarmOn ? "alarm raised" : "quiet, below the line"}</em>
+          </div>); })}{!swarm.length && <div className="tip">No attack yet.</div>}</div>
+        {swarm.length > 0 && <><b style={{ fontSize: 12.5 }}>The alarm line against the slow build-up</b><SwarmChart hist={hist} snap={snap} /></>}
+        {swarm.length > 0 && <><b style={{ fontSize: 12.5 }}>What ATHENA did, in order</b>
+          <div className="timeline-list">
+            {(inc?.stages || []).map((s: any, i: number) => <div key={i} className="row" style={{ fontSize: 12.5 }}><Check /><span className="grow"><b>{STAGE_PLAIN[s.stage] || s.stage}</b></span><span className="dim" style={{ fontSize: 11 }}>+{Math.max(0, s.minute - swarmStart)} min</span></div>)}
+            {(inc?.actions || []).map((a: any, i: number) => <div key={"a" + i} className="row" style={{ fontSize: 12.5, cursor: "pointer" }} onClick={() => showTarget(st, a.target, inc.evidence_nodes)}><span style={{ color: C.aquaD }}><Ic n="shield" /></span><span className="grow">{cut(plainMove(a.label).title, 80)}</span><span className="dim" style={{ fontSize: 11 }}>+{Math.max(0, a.minute - swarmStart)} min</span></div>)}
+            {!inc && <div className="tip">ATHENA has not raised an alarm yet. It is adding up the small signs.</div>}
+          </div></>}
+        {swarm.length > 0 && <div className="grid3">
+          <Stat v={`${swarmTaken}`} l="devices the attackers took" color={swarmTaken > 6 ? C.terra : C.apricot} />
+          <Stat v={inc ? mmin(inc.t0 - swarmStart) : "not yet"} l="until the alarm" color={C.aquaD} />
+          <Stat v={`${cutN}`} l={`devices ATHENA cut (everything would be ${total})`} color={C.aquaD} />
+          <Stat v={`${(snap.services.served_frac * 100).toFixed(1)}%`} l="homes served now" color={snap.services.served_frac > 0.99 ? C.aquaD : C.apricot} />
+          <Stat v={`${snap.services.cum?.hosp_h?.toFixed?.(2) ?? "0"} h`} l="hospital water lost" color={C.aquaD} />
+          <Stat v={`${k(snap.compare.none_hh)} → ${k(snap.compare.live_hh)}`} l="home-hours lost: no response → ATHENA" color={C.aquaD} />
+        </div>}
       </Box>
     </>
   );
@@ -338,7 +351,7 @@ export function SafetyView() {
         {e12 ? <>
           <Bars rows={[{ label: "Unsafe actions stopped before running", value: e12.candidate_actions_blocked_in_scenarios, color: C.aquaD }, { label: "Times a response hurt a hospital", value: e12.scenarios_where_response_made_hospital_worse, color: C.terra }]} />
           {e9 && <Bars rows={[{ label: "Devices cut by ATHENA (average)", value: e9.mean_devices_disconnected_decoy, color: C.aquaD }, { label: "Devices cut by 'cut everything'", value: e9.devices_disconnected_isolate_all, color: C.apricot }]} />}
-          {detAll > 0 && <div className="grid3"><Stat v={`${detOk}/${detAll}`} l="unseen attack types caught" color={C.aquaD} /><Stat v={e9 ? `${e9.detected_pct}%` : "–"} l="attacks detected" color={C.aquaD} /><Stat v={e9 ? `${e9.hospital_hours_decoy}h` : "–"} l="hospital water lost" color={C.aquaD} /></div>}
+          {detAll > 0 && <div className="grid3"><Stat v={`${detOk}/${detAll}`} l="unseen attack types caught" color={C.aquaD} /><Stat v={E.E17?.result?.rows ? `${E.E17.result.rows[E.E17.result.rows.length - 1].harmful_detected_pct}%` : "–"} l="harmful attacks detected" color={C.aquaD} /><Stat v={e9 ? `${e9.hospital_hours_decoy}h` : "–"} l="hospital water lost" color={C.aquaD} /></div>}
           <div className="tip">Every fix is tested on a copy of the city first, and only goes ahead if no hospital gets worse. Measured in {e9?.scenarios ?? "many"} simulated attacks.</div>
         </> : <div className="tip">Run backend/experiments.py to fill this in.</div>}
         <div className="row between"><span style={{ fontSize: 12.5 }}>Links closed right now</span><b>{closedLinks}</b></div>

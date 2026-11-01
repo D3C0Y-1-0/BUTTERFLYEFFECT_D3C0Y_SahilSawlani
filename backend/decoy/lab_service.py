@@ -3,7 +3,9 @@ runs the five defensive scenarios and compares mitigations. The simulation sessi
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
+import pickle
 import threading
 import time
 
@@ -90,10 +92,31 @@ class LabService:
                 g.append(v)
         return np.array(X), np.array(y), np.array(g)
 
+    def _cache_key(self, n_variants, seed):
+        h = hashlib.md5(json.dumps(self.model["assets"], sort_keys=True, default=str).encode("utf-8")).hexdigest()
+        return f"{MODEL_VERSION}|{n_variants}|{seed}|{h}"
+
     def train(self, n_variants=260, seed=11):
+        """Train the risk model, or load it from data/lab_model_cache.pkl when nothing it depends on has changed (so a restart is instant)."""
         with self.lock:
             self.state = dict(status="training", error=None)
         try:
+            key = self._cache_key(n_variants, seed); path = DATA / "lab_model_cache.pkl"
+            blob = None
+            try:
+                if path.exists():
+                    with open(path, "rb") as fh:
+                        b = pickle.load(fh)
+                    if b.get("key") == key:
+                        blob = b
+            except Exception:
+                blob = None
+            if blob is not None:
+                self.risk = blob["risk"]; meta = blob["meta"]
+                with self.lock:
+                    self._cache.clear(); self.ref_impact, self.ref_risk = blob["ref_impact"], blob["ref_risk"]
+                    self.state = dict(status="ready", error=None, meta=meta, rules=RULES, features=[dict(name=n, source=s, direction=d) for n, s, d in FEATURES])
+                return self.state
             X, y, g = self.build_training_set(n_variants, seed)
             meta = self.risk.fit(X, y, g, seed=seed)
             with self.lock:
@@ -105,6 +128,11 @@ class LabService:
                 self.ref_risk = max(max(prior[a] * imp[a] / self.ref_impact for a in imp), 1e-9)
                 self.state = dict(status="ready", error=None, meta=meta, rules=RULES, features=[dict(name=n, source=s, direction=d) for n, s, d in FEATURES])
                 (DATA / "lab_model_meta.json").write_text(json.dumps(self.state["meta"]), encoding="utf-8")
+            try:
+                with open(path, "wb") as fh:
+                    pickle.dump(dict(key=key, risk=self.risk, meta=meta, ref_impact=self.ref_impact, ref_risk=self.ref_risk), fh)
+            except Exception:
+                pass
         except Exception as e:   # surfaced by GET /model; never crashes the server
             with self.lock:
                 self.state = dict(status="error", error=f"{type(e).__name__}: {e}")

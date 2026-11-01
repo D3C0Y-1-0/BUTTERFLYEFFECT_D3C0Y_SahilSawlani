@@ -21,3 +21,4 @@ data/ppo_policy_v*.pt
 data/ppo_train_s*.json
 data/ppo_train_v*.json
 data/ppo_eval_v*.json
+data/lab_model_cache.pkl

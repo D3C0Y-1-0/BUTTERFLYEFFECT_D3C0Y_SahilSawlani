@@ -13,7 +13,7 @@ export function statusOf(snap: any): Status {
       : { key: "attack", label: "Investigating", word: "Incident open", tone: "watch", color: C.apricot, line: "An incident is open. ATHENA is checking what happened." };
   }
   const run = (snap?.adversary || []).slice().reverse().find((c: any) => c.state !== "done" && c.state !== "contained");   // an attack is under way but nothing has been noticed yet
-  if (run) { const n = Math.max(0, run.compromised.length - 1); return { key: "attack", label: "Attack running", word: "Attack running", tone: "crit", color: C.terra, line: `A simulated attacker is moving through the network (${n} device${n === 1 ? "" : "s"} taken so far). ATHENA has not raised an alarm yet; it reacts when odd traffic or a broken physics rule shows up.` }; }
+  if (run) { const n = Math.max(0, run.compromised.length - 1); return { key: "attack", label: "Attack running", word: "Attack running", tone: "crit", color: C.terra, line: `A simulated attacker is moving through the network (${n} device${n === 1 ? "" : "s"} taken so far). This is the simulator's own view; ATHENA cannot see the attacker. It reacts only to odd traffic or a broken physics rule, and has raised no alarm yet.` }; }
   const rec = [...incs].reverse().find((i) => i.status === "resolved" && snap.t - (i.stages[i.stages.length - 1]?.minute ?? 0) < 90);
   if (rec) return { key: "recovered", label: "Recovered", word: "Recovered", tone: "safe", color: C.aquaD, line: "Attack stopped. Service is back to normal." };
   if (p > 0.6) return { key: "watch", label: "Suspicious", word: "Suspicious", tone: "watch", color: C.apricot, line: "Something looks odd. ATHENA is watching closely." };

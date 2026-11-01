@@ -347,7 +347,9 @@ def e9_e12_e13(ctx, n9=80, n13=50):
 
 # ------------------------------------------------------------------ E10
 def e10(ctx):
-    from decoy.watchdog import build_watchdog, Watchdog
+    from decoy.watchdog import Watchdog
+    from decoy.training import build_watchdog
+    from decoy.environment import Environment
     from decoy.twin import LiveTwin
     from decoy.adversary import Adversary
     from sklearn.linear_model import LogisticRegression
@@ -356,12 +358,12 @@ def e10(ctx):
     # held-out: build a fusion trained only on episodes with 'standard' and 'insider'; test on zero_day / wear / spoof
     def episode(mode, seed, stealth, normal=False):
         tw = LiveTwin(W, seed=seed); [tw.step() for _ in range(90)]; wd.reset_state()
-        adv = Adversary(W, T, seed=seed + 500)
+        adv = Adversary(W, seed=seed + 500); env = Environment(W, T, seed=seed + 600)
         c = None if normal else adv.launch(tw.minute, mode=mode, stealth=stealth, goal=list(adv.goals)[seed % 8])
         feats, labels = [], []
         for k in range(300):
             minute = tw.minute
-            flows, phys, _ = adv.tick(minute) if c else ([], [], [])
+            flows, phys, _ = adv.tick(minute, env) if c else ([], [], [])
             for ph in phys:
                 if ph["kind"] == "wear": tw.breaker_cycle(); continue
                 tw.act(ph["kind"], ph["target"], ph["dur_min"])
@@ -450,18 +452,154 @@ def e17(ctx, sizes=(10, 20, 40, 80, 160, 320)):
     rows = []
     for n in sizes:
         B = S[:n]; M = lambda key: float(np.mean([x[key] for x in B]))
-        hurt = [x for x in B if x["executed_none"]]
-        dm = [x["detect_min"] for x in B if x["detect_min"] is not None]
+        hurt = [x for x in B if x["executed_none"]]            # attacks that really would have damaged service with no response
+        moved = [x for x in B if x["hops"] >= 1]               # attacks that got at least one step into the network
+        dm = [x["detect_min"] for x in hurt if x["detect_min"] is not None]
         rows.append(dict(batch=n, seconds=round(secs[n - 1], 1), per_attack_s=round(secs[n - 1] / n, 2),
-                         detected_pct=round(100 * float(np.mean([x["detected"] for x in B])), 1), median_detect_minutes=float(np.median(dm)) if dm else None,
-                         harmful_without_response=len(hurt), loss_decoy=round(M("live")), loss_none=round(M("none")), loss_iso=round(M("iso")),
+                         harmful=len(hurt), harmful_detected_pct=round(100 * float(np.mean([x["detected"] for x in hurt])), 1) if hurt else None,
+                         intruders=len(moved), intruders_detected_pct=round(100 * float(np.mean([x["detected"] for x in moved])), 1) if moved else None,
+                         failed_at_door=sum(1 for x in B if x["hops"] == 0), median_detect_minutes=float(np.median(dm)) if dm else None, p90_detect_minutes=float(np.percentile(dm, 90)) if dm else None,
+                         loss_decoy=round(M("live")), loss_none=round(M("none")), loss_iso=round(M("iso")),
                          loss_cut_pct=round(100 * (1 - M("live") / max(1.0, M("none"))), 1), reached_physical_pct=round(100 * M("executed_live"), 1),
                          devices_cut=round(M("devices_cut_decoy"), 1), contained_pct=round(100 * float(np.mean([x["contained"] for x in B])), 1)))
+    # false alarms: long attack-free runs
+    rt.autonomy, rt.autopilot = "auto_all", False
+    fa = 0; runs = 30
+    for k in range(runs):
+        rt.reset(88000 + k)
+        for _ in range(12 * 60):
+            rt.tick()
+        fa += 1 if rt.incidents else 0
     ok = all(r["loss_decoy"] < r["loss_none"] for r in rows)
-    return {"E17": dict(claim="Performance holds as the batch of attacks grows", target="DECOY loses less service than no response at every batch size", result=dict(rows=rows, note="Each batch is the first N attacks of one run of random attack types, entries and targets, so bigger batches include the smaller ones. Numbers are whatever the run produced."), met=bool(ok))}
+    return {"E17": dict(claim="Performance holds as the batch of attacks grows", target="DECOY loses less service than no response at every batch size; harmful attacks detected >= 90%; no false alarms in calm runs",
+                        result=dict(rows=rows, false_alarm_runs=fa, calm_runs=runs, calm_hours=runs * 12,
+                                    note="Each batch is the first N attacks of one run of random attack types, entries and targets, so bigger batches include the smaller ones. 'Harmful' = attacks that would have cut service with no response. 'Failed at the door' = the attacker never got past its first step, so there was nothing to detect."),
+                        met=bool(ok and fa == 0 and all((r["harmful_detected_pct"] or 100) >= 90 for r in rows)))}
 
 
-REG = {"E1": e1_e2, "E2": e1_e2, "E3": e3_e4, "E4": e3_e4, "E5": e5, "E6": e6, "E7": e7, "E8": e8, "E9": e9_e12_e13, "E12": e9_e12_e13, "E13": e9_e12_e13, "E10": e10, "E11": e11, "E17": e17}
+def e18(ctx, n=30):
+    """DDoS floods and coordinated groups (several attackers at once)."""
+    from decoy.runtime import Runtime
+    rt = ctx.get("rt") or Runtime(sync=True, n_samples=2000, verbose=False)
+    ctx["rt"] = rt
+    rt.autonomy, rt.autopilot = "auto_all", False
+    res = {}
+    for mode in ("ddos", "group"):
+        R = []
+        for k in range(n):
+            rt.reset(60000 + k); rt.launch_attack(mode, None, None, None, actor="experiment"); m0 = rt.live.minute
+            for _ in range(200):
+                rt.tick()
+            inc = rt.incidents[0] if rt.incidents else None
+            fl = [c for c in rt.adv.campaigns if c.mode == "ddos"]
+            R.append(dict(detected=bool(inc), detect_min=(inc["t0"] - m0) if inc else None, live=rt.live.loss_composite(), none=rt.none.loss_composite(), iso=rt.iso.loss_composite(),
+                          flood_min=sum(c.flood_minutes for c in fl), flood_open=sum(c.flood_open for c in fl), attackers=len(rt.adv.campaigns), harmful=any(c.acted for c in rt.adv_none.campaigns),
+                          harmful_live=any(c.acted for c in rt.adv.campaigns)))
+        dm = [r["detect_min"] for r in R if r["detect_min"] is not None]
+        res[mode] = dict(runs=n, detected_pct=round(100 * float(np.mean([r["detected"] for r in R])), 1), median_detect_minutes=float(np.median(dm)) if dm else None,
+                         loss_decoy=round(float(np.mean([r["live"] for r in R]))), loss_none=round(float(np.mean([r["none"] for r in R]))), loss_iso=round(float(np.mean([r["iso"] for r in R]))),
+                         flood_blocked_pct=round(100 * (1 - sum(r["flood_open"] for r in R) / max(1, sum(r["flood_min"] for r in R))), 1) if mode in ("ddos", "group") else None,
+                         attackers_per_run=round(float(np.mean([r["attackers"] for r in R])), 1), harmful_runs=sum(r["harmful"] for r in R), harmful_runs_with_athena=sum(r["harmful_live"] for r in R))
+    ok = all(v["detected_pct"] >= 90 and v["loss_decoy"] < max(1, v["loss_none"]) + 1 for v in res.values())
+    return {"E18": dict(claim="Floods and coordinated groups are handled", target="detected >= 90%; flood dropped at the edge; service loss no worse than no response", result=res, met=bool(ok))}
+
+
+
+def e19_e20(ctx, n_swarm=24, n_phys=12):
+    """E19: many small attacks below the alarm line (with and without the slow-build-up detector). E20: attacks on physical equipment, target by target."""
+    from decoy.runtime import Runtime
+    rt = ctx.get("rt") or Runtime(sync=True, n_samples=2000, verbose=False)
+    ctx["rt"] = rt
+    rt.autonomy, rt.autopilot = "auto_all", False
+    line = rt.watchdog.cs_h
+    res19 = {}
+    for name, cs_h in (("with_cusum", line), ("single_window_only", 1e9)):
+        rt.watchdog.cs_h = cs_h
+        R = []
+        for k in range(n_swarm):
+            rt.reset(70000 + k); rt.launch_attack("swarm", None, None, None, actor="experiment"); m0 = rt.live.minute; peak = 0.0; first = None
+            for t in range(6 * 60):
+                rt.tick(); peak = max(peak, rt.last_p)
+            inc = rt.incidents[0] if rt.incidents else None
+            R.append(dict(detected=bool(inc), delay=(inc["t0"] - m0) if inc else None, peak_p=peak, live=rt.live.loss_composite(), none=rt.none.loss_composite(), harmful=any(c.acted for c in rt.adv_none.campaigns),
+                          reached=sum(max(0, len(c.compromised) - 1) for c in rt.adv.campaigns)))
+        dm = [r["delay"] for r in R if r["delay"] is not None]
+        res19[name] = dict(runs=n_swarm, detected_pct=round(100 * float(np.mean([r["detected"] for r in R])), 1), median_delay_minutes=float(np.median(dm)) if dm else None,
+                           loss_athena=round(float(np.mean([r["live"] for r in R]))), loss_no_response=round(float(np.mean([r["none"] for r in R]))),
+                           harmful_runs=sum(r["harmful"] for r in R), mean_devices_taken=round(float(np.mean([r["reached"] for r in R])), 1),
+                           mean_peak_single_alarm_pct=round(100 * float(np.mean([r["peak_p"] for r in R])), 1))
+    rt.watchdog.cs_h = line
+    res19["attackers_per_run"] = 5
+    out = {"E19": dict(claim="Many small attacks below the alarm line are still caught", target="detected >= 90% with the slow-build-up detector, and detected more often or sooner than single-window alarms alone",
+                       result=res19, met=bool(res19["with_cusum"]["detected_pct"] >= 90 and (res19["with_cusum"]["detected_pct"] > res19["single_window_only"]["detected_pct"] or (res19["with_cusum"]["median_delay_minutes"] or 1e9) < (res19["single_window_only"]["median_delay_minutes"] or 1e9))))}
+    # E20: physical equipment, one target at a time
+    rows = []
+    for ctrl, aid in rt.adv.goals.items():
+        act = rt.ward["actions"][aid]; R = []
+        for k in range(n_phys):
+            rt.reset(90000 + k); rt.launch_attack("standard", None, ctrl, None, actor="experiment"); m0 = rt.live.minute
+            for _ in range(22 * 60):
+                rt.tick()
+            inc = rt.incidents[0] if rt.incidents else None
+            R.append(dict(det=(inc["t0"] - m0) if inc else None, harmful=any(c.acted for c in rt.adv_none.campaigns), reached=any(e["kind"] == "physical_action" for e in rt.feed),
+                          live=rt.live.lost.copy(), none=rt.none.lost.copy()))
+        dm = [r["det"] for r in R if r["det"] is not None and r["harmful"]]
+        H = [r for r in R if r["harmful"]]; mean = lambda rs, w, kk: round(float(np.mean([x[w][kk] for x in rs])), 2) if rs else 0.0
+        rows.append(dict(target=act["label"], kind=act["kind"], runs=n_phys, harmful_runs=len(H), reached_equipment_athena=sum(r["reached"] for r in R),
+                         detected_pct_of_harmful=round(100 * float(np.mean([r["det"] is not None for r in H])), 1) if H else None, median_alarm_minutes=float(np.median(dm)) if dm else None,
+                         homes_hours_lost_none=mean(H, "none", "hh_h"), homes_hours_lost_athena=mean(H, "live", "hh_h"), hospital_hours_none=mean(H, "none", "hosp_h"), hospital_hours_athena=mean(H, "live", "hosp_h"),
+                         mwh_lost_none=mean(H, "none", "mwh"), mwh_lost_athena=mean(H, "live", "mwh")))
+    out["E20"] = dict(claim="Physical attacks on pumps, valves, breakers and hospital supply are stopped before they cause lasting loss", target="equipment reached in under 20% of harmful runs; hospital hours lost near zero",
+                      result=dict(rows=rows), met=bool(all(r["reached_equipment_athena"] <= 0.2 * max(1, r["runs"]) + 1 for r in rows)))
+    return out
+
+
+
+def e21(ctx, n=240):
+    """E21: how well are attacks predicted BEFORE they happen? (a) the forecast list made before any attack: does it contain the devices the attacker really takes?
+    (b) once an attack is under way, does the predicted next step match what the attacker does next if nobody stops it?"""
+    from decoy.runtime import Runtime
+    from decoy.lab import Controls
+    from decoy.lab_service import LabService
+    rt = ctx.get("rt") or Runtime(sync=True, n_samples=2000, verbose=False)
+    ctx["rt"] = rt
+    L = LabService(rt); L.train()
+    rows = sorted(L.ranking(Controls()), key=lambda r: -r["likelihood"]); order = [r["id"] for r in rows]; rank = {a: i for i, a in enumerate(order)}
+    rt.autonomy, rt.autopilot = "auto_all", False
+    TYPES = ["standard", "zero_day", "spoof", "wear", "insider", "blitz"]; GOALS = list(rt.adv.goals.keys())
+    entries = [k for k, a in rt.ward["assets"].items() if a["entry_weight"] > 0]
+    R = []
+    for g in range(n):
+        mode = TYPES[g % len(TYPES)]; goal = GOALS[(g // len(TYPES)) % len(GOALS)]
+        rng = np.random.default_rng(310000 + g); entry = str(rng.choice(entries)) if mode != "insider" else None
+        rt.reset(310000 + g); rt.launch_attack(mode, entry, goal, float(rng.uniform(2, 7)), actor="experiment"); m0 = rt.live.minute
+        pred_next = None
+        for _ in range(22 * 60):
+            rt.tick()
+            if pred_next is None and rt.incidents and rt.incidents[0]["next_hops"]:
+                pred_next = [h["dst"] for h in rt.incidents[0]["next_hops"]]; t_pred = rt.live.minute
+        c0 = rt.adv_none.campaigns[0]
+        taken = [x for x in c0.compromised if x != "INTERNET"]
+        item = dict(mode=mode, taken=len(taken), entry=c0.entry, hit5=any(rank.get(x, 99) < 5 for x in taken), hit10=any(rank.get(x, 99) < 10 for x in taken),
+                    prec5=float(np.mean([order[i] in taken for i in range(5)])), recall10=float(np.mean([rank.get(x, 99) < 10 for x in taken])) if taken else None,
+                    entry_in5=rank.get(c0.entry, 99) < 5, entry_in10=rank.get(c0.entry, 99) < 10, goal_rank=rank.get(c0.goal, 99))
+        later = [h for h in c0.hops if pred_next is not None and h[0] > t_pred]
+        item["next_known"] = bool(later); item["next_top1"] = bool(later and pred_next and later[0][3] == pred_next[0]); item["next_top3"] = bool(later and later[0][3] in pred_next[:3])
+        R.append(item)
+    M = lambda xs, key: round(100 * float(np.mean([x[key] for x in xs])), 1) if xs else None
+    withmoves = [x for x in R if x["taken"] > 0]; nxt = [x for x in R if x["next_known"]]
+    by = {}
+    for t in TYPES:
+        T = [x for x in R if x["mode"] == t and x["taken"] > 0]
+        by[t] = dict(attacks=len([x for x in R if x["mode"] == t]), got_in=len(T), top5_hit_pct=M(T, "hit5"), top10_hit_pct=M(T, "hit10"), entry_in_top10_pct=M(T, "entry_in10"))
+    res = dict(attacks=len(R), got_in=len(withmoves), top5_hit_pct=M(withmoves, "hit5"), top10_hit_pct=M(withmoves, "hit10"), entry_in_top5_pct=M(withmoves, "entry_in5"), entry_in_top10_pct=M(withmoves, "entry_in10"),
+               precision_at_5_pct=round(100 * float(np.mean([x["prec5"] for x in withmoves])), 1) if withmoves else None, mean_devices_taken=round(float(np.mean([x["taken"] for x in withmoves])), 1) if withmoves else None,
+               next_step_attacks=len(nxt), next_step_top1_pct=M(nxt, "next_top1"), next_step_top3_pct=M(nxt, "next_top3"), by_type=by, forecast_list_size=len(order),
+               note="Forecast = the model's list of most likely targets, made before any attack. 'Taken' = devices an unopposed attacker really reached in the simulator. Next-step = the route predicted when the alarm opens, against the attacker's actual next move if nobody stopped it.")
+    return {"E21": dict(claim="Attacks can be predicted before they happen", target="top-10 forecast contains a device the attacker really takes in >= 70% of attacks", result=res, met=bool((res["top10_hit_pct"] or 0) >= 70))}
+
+
+REG = {"E1": e1_e2, "E2": e1_e2, "E3": e3_e4, "E4": e3_e4, "E5": e5, "E6": e6, "E7": e7, "E8": e8, "E9": e9_e12_e13, "E12": e9_e12_e13, "E13": e9_e12_e13, "E10": e10, "E11": e11, "E17": e17, "E18": e18, "E19": e19_e20, "E20": e19_e20, "E21": e21}
 
 
 def main():

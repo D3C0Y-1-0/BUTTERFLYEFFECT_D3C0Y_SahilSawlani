@@ -146,3 +146,25 @@ def test_roads_and_rail_are_served_for_the_map(client):
     g = client.get("/api/geo", headers=client.adm).json()
     kinds = {w["k"] for w in g["roads"]["ways"]}
     assert "rail" in kinds and "primary" in kinds and len(g["roads"]["ways"]) > 1000
+
+
+def test_ddos_flood_is_dropped_at_the_edge_without_touching_control():
+    rt = api.state["rt"]
+    rt.reset(4000); rt.autonomy, rt.autopilot = "auto_all", False
+    rt.launch_attack("ddos", None, None, None, actor="test")
+    for _ in range(120):
+        rt.tick()
+    c = [x for x in rt.adv.campaigns if x.mode == "ddos"][0]
+    assert c.flood_minutes > 30 and c.flood_open <= 0.15 * c.flood_minutes, (c.flood_open, c.flood_minutes)
+    assert rt.live.loss_composite() == 0
+    assert any(a["actor"] == "athena:flood-guard" for i in rt.incidents for a in i["actions"])
+
+
+def test_coordinated_group_launches_several_attackers_and_service_survives():
+    rt = api.state["rt"]
+    rt.reset(4001); rt.autonomy, rt.autopilot = "auto_all", False
+    rt.launch_attack("group", None, None, None, actor="test")
+    assert len(rt.adv.campaigns) == 4
+    for _ in range(200):
+        rt.tick()
+    assert rt.incidents and rt.live.loss_composite() <= rt.none.loss_composite()

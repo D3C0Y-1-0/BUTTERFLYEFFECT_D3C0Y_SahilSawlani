@@ -65,13 +65,6 @@ export function AttackScore({ snap, st, hist }: { snap: any; st: any; hist: any[
         <Stat v={`${(snap.services.served_frac * 100).toFixed(1)}%`} l={`homes served now (lowest ${(f.low * 100).toFixed(1)}%)`} color={snap.services.served_frac > 0.99 ? C.aquaD : C.apricot} />
         <Stat v={`${f.hOk}/${f.hAll}`} l="hospitals with water" color={f.hOk === f.hAll ? C.aquaD : C.terra} />
       </div>
-      <LineChart h={112} yMin={Math.max(0, Math.min(0.9, ...f.since.map((x) => Math.min(x.live, x.none, x.iso))) - 0.03)} series={[{ name: "ATHENA", color: C.aquaD, data: f.since.map((x) => x.live), width: 3.4 }, { name: "No response", color: C.terra, data: f.since.map((x) => x.none), dash: "5 4" }, { name: "Cut everything", color: C.apricot, data: f.since.map((x) => x.iso), dash: "2 4" }]} />
-      <div className="row wrap tip" style={{ gap: 12 }}><span><b style={{ color: C.aquaD }}>━</b> ATHENA {(snap.services.served_frac * 100).toFixed(1)}%</span><span><b style={{ color: C.terra }}>┅</b> no response {(c.none_served * 100).toFixed(1)}%</span><span><b style={{ color: C.apricot }}>┈</b> cut everything {(c.iso_served * 100).toFixed(1)}%</span></div>
-      <div className="vs">
-        <div><small>No response</small><b>{k(c.none_hh)}</b><span>home-hours lost</span></div>
-        <div className="win"><small>ATHENA</small><b>{k(c.live_hh)}</b><span>{f.harmCut !== null ? `${Math.round(f.harmCut * 100)}% less lost` : "home-hours lost"}</span></div>
-        <div><small>Cut everything</small><b>{k(c.iso_hh)}</b><span>home-hours lost</span></div>
-      </div>
       <div className="tip">{f.saved > 0 ? <>ATHENA has kept about <b>{k(f.saved)}</b> home-hours of water and power, worth roughly <b>₹{k(money)}</b> at ₹{INR_PER_HOME_HOUR} per home-hour (assumed rate). </> : "No service has been lost so far, so there is nothing to save yet. "}Hospitals with water: <b>{f.hOk}</b> with ATHENA, {f.hNone} with no response, {f.hIso} if everything were cut.</div>
     </div>
   );
@@ -94,6 +87,64 @@ export function SeverityRisk({ rows, onPick }: { rows: any[]; onPick?: (id: stri
           <span className="sr-bar"><i style={{ width: `${(r.raw / mx) * 100}%` }} /><em>{k(r.raw)}</em></span>
         </div>); })}
       <div className="tip">Left rank: how the old severity score (CVSS) would order it. Right rank: how it ranks once we count the homes and hospitals that would lose service. A big green or red arrow means severity alone would have misled you.</div>
+    </div>
+  );
+}
+
+/** How ATHENA tells a real attack from noise, with the live numbers of each gate. */
+export function FalseAlarmGate({ snap, exp }: { snap: any; exp: any }) {
+  const w = snap.watch; const p = w.shown ?? w.p; const raw = w.p; const cs = w.cusum ?? 0, line = w.cusum_line || 1;
+  const e17 = exp?.E17?.result; const gate = (n: number, title: string, val: string, frac: number, line_: number | null, on: boolean, how: string) => (
+    <div className="gate"><div className="row between"><b>{n} · {title}</b><span className={"pill " + (on ? "crit" : "safe")}>{on ? "tripped" : "quiet"}</span></div>
+      <div className="gbar"><i style={{ width: `${Math.min(100, frac * 100)}%`, background: on ? "#E11D48" : C.aquaD }} />{line_ !== null && <u style={{ left: `${line_ * 100}%` }} />}</div>
+      <div className="row between" style={{ fontSize: 11.5 }}><span className="dim">{how}</span><b>{val}</b></div></div>);
+  return (
+    <div className="col" style={{ gap: 8 }}>
+      {gate(1, "One-window evidence", `${(raw * 100).toFixed(0)}%`, raw, 0.85, raw > 0.85, "odd traffic + broken physics, fused into one probability; the line is 85%")}
+      {gate(2, "Must repeat", `${w.hits ?? 0} of 2`, (w.hits ?? 0) / 2, null, (w.hits ?? 0) >= 2, "two readings in a row above 85% before an incident opens, so one blip does nothing")}
+      {gate(3, "Slow build-up (CUSUM)", `${cs.toFixed(1)} / ${line.toFixed(1)}`, cs / line, 1, cs > line, "small repeated signs add up; a quiet city never reaches the line")}
+      {gate(4, "Careful response", w.flood ? "flood guard on" : "ask or safe step", 0.0, null, false, "risky steps need a person; every step is safety-checked and reversible")}
+      <div className="steps3"><div><b>Learn</b><span>Only windows with no alert nearby teach the model what normal is, so an attacker cannot train it.</span></div><div><b>Undo</b><span>A false alarm resolves by itself after 30 quiet minutes; blocked links are released and re-checked.</span></div><div><b>Record</b><span>{e17 ? `${e17.false_alarm_runs} false alarms in ${e17.calm_runs} calm runs (${e17.calm_hours} hours).` : "Measured by experiment E17."}</span></div></div>
+    </div>
+  );
+}
+
+/** Many quiet attacks: each one stays under the single-alarm line, but their traces add up and the slow-build-up detector crosses its own line. */
+export function SwarmChart({ hist, snap }: { hist: any[]; snap: any }) {
+  const camps = snap.adversary || []; const start = camps.length ? Math.min(...camps.map((c: any) => c.started)) - 3 : 0; const h = hist.filter((x) => x.t >= start).slice(-150);
+  if (h.length < 3) return <div className="tip"><Ic n="clock" /> Launch "Many small attacks" to watch the two lines below.</div>;
+  const w = 360, ht = 130, L = 34, x = (i: number) => L + (i / Math.max(1, h.length - 1)) * (w - L - 6), y = (v: number) => ht - 20 - Math.min(1.15, v) * (ht - 34);
+  const single = h.map((q) => q.raw ?? q.p), cus = h.map((q) => (q.cs ?? 0) / (q.line || 1)); const pk = Math.max(...single); const crossed = cus.findIndex((v) => v >= 1);
+  return (
+    <div className="col" style={{ gap: 6 }}>
+      <svg viewBox={`0 0 ${w} ${ht}`} width="100%" role="img" aria-label="Single alarm versus slow build-up">
+        {[0, 0.5, 1].map((g) => <g key={g}><line x1={L} x2={w - 6} y1={y(g)} y2={y(g)} stroke={C.line} /><text x={L - 4} y={y(g) + 4} fontSize="9.5" textAnchor="end" fill={C.dim}>{g * 100}%</text></g>)}
+        <line x1={L} x2={w - 6} y1={y(0.85)} y2={y(0.85)} stroke="#E11D48" strokeDasharray="4 3" /><text x={w - 8} y={y(0.85) - 3} fontSize="9.5" textAnchor="end" fill="#E11D48">single-alarm line 85%</text>
+        <polyline fill="none" stroke={C.apricot} strokeWidth="2.4" points={single.map((v, i) => `${x(i)},${y(v)}`).join(" ")} />
+        <polyline fill="none" stroke="#7B61FF" strokeWidth="2.8" points={cus.map((v, i) => `${x(i)},${y(v * 0.85)}`).join(" ")} />
+        {crossed >= 0 && <g><circle cx={x(crossed)} cy={y(0.85)} r="5" fill="#fff" stroke="#7B61FF" strokeWidth="2.5" /><text x={Math.min(x(crossed) + 7, w - 90)} y={y(0.85) + 14} fontSize="10" fontWeight="800" fill="#7B61FF">slow build-up alarm</text></g>}
+      </svg>
+      <div className="row wrap tip" style={{ gap: 12 }}><span><b style={{ color: C.apricot }}>━</b> strongest single reading ({Math.round(pk * 100)}% at most)</span><span><b style={{ color: "#7B61FF" }}>━</b> slow build-up (alarm when it touches the red line)</span></div>
+      <div className="tip">{camps.length} quiet attackers are active. {crossed >= 0 ? "Each stayed under the single-alarm line, but the build-up crossed its own line, so the incident opened." : "Each one is below the single-alarm line. The purple line keeps adding their small signs."}</div>
+    </div>
+  );
+}
+
+/** Physical equipment: what the attack did to pumps, valves, breakers, tanks and hospitals, now, against doing nothing. */
+export function PhysicalPanel({ snap, st }: { snap: any; st: any }) {
+  const L = snap.levels || {}, hosp = snap.services.hospitals, cum = snap.services.cum || { hh_h: 0, hosp_h: 0, mwh: 0 }, nc = snap.compare.none_cum || { hh_h: 0, hosp_h: 0, mwh: 0 };
+  const pumps = ["PS1", "PS2"].map((p) => ({ id: p, on: !!snap.pumps?.[p] && !snap.forced?.[p], forced: !!snap.forced?.[p] })); const feeders = Object.entries<boolean>(snap.services.feeders || {});
+  const valves = ["V1", "V2"].map((v) => ({ id: v, open: (snap.tele?.[v + "_pos"] ?? 1) > 0.5 }));
+  const chip = (ok: boolean, label: string) => <span key={label} className={"pill " + (ok ? "safe" : "crit")}>{ok ? "● " : "✕ "}{label}</span>;
+  const unit = (v: number, d = 1) => (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v.toFixed(d));
+  return (
+    <div className="col" style={{ gap: 9 }}>
+      <div className="row wrap" style={{ gap: 5 }}>{pumps.map((p) => chip(p.on, `Pump ${p.id.slice(2)} ${p.on ? "running" : "stopped"}`))}{valves.map((v) => chip(v.open, `Valve ${v.id} ${v.open ? "open" : "closed"}`))}{feeders.map(([f, ok]) => chip(ok, `Feeder ${f} ${ok ? "on" : "off"}`))}</div>
+      <div className="grid2">{["T1", "T2"].map((t) => { const lv = L[t] ?? 0; return <div key={t} className="gate"><div className="row between"><b>Tank {t.slice(1)}</b><span>{lv.toFixed(1)} m</span></div><div className="gbar"><i style={{ width: `${Math.min(100, (lv / 8) * 100)}%`, background: lv < 2.5 ? "#E11D48" : lv < 4 ? C.apricot : C.aquaD }} /><u style={{ left: "31%" }} /></div><div className="dim" style={{ fontSize: 11 }}>line = low-water mark</div></div>; })}</div>
+      <div className="grid3">{Object.entries<any>(hosp).map(([h, v]) => <div key={h} className="gate"><div className="row between"><b>{st.physical[h]?.name?.replace(/ \(.*\)/, "").slice(0, 14) || h}</b><span className={"pill " + (v.ok ? "safe" : "crit")}>{v.ok ? "OK" : "AT RISK"}</span></div><div className="gbar"><i style={{ width: `${Math.min(100, (v.pressure / 30) * 100)}%`, background: v.pressure >= 15 ? C.aquaD : "#E11D48" }} /><u style={{ left: "50%" }} /></div><div className="dim" style={{ fontSize: 11 }}>{v.pressure.toFixed(1)} m (min 15)</div></div>)}</div>
+      <div className="vs"><div><small>Homes without service</small><b>{unit(snap.services.households_total - snap.services.households_served, 0)}</b><span>right now</span></div>
+        <div className="win"><small>Lost with ATHENA</small><b>{unit(cum.hh_h)}</b><span>home-h · {cum.mwh.toFixed(1)} MWh · {cum.hosp_h.toFixed(2)} hospital-h</span></div>
+        <div><small>Lost with no response</small><b>{unit(nc.hh_h)}</b><span>home-h · {nc.mwh.toFixed(1)} MWh · {nc.hosp_h.toFixed(2)} hospital-h</span></div></div>
     </div>
   );
 }

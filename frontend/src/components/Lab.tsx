@@ -11,6 +11,7 @@ import { scene } from "../scene/ref";
 
 const cut = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s);
 const V2 = "/api/v2";
+const LAYERS: [string, string][] = [["iot", "Smart-city edge devices"], ["it", "Office IT"], ["dmz", "Gateway (DMZ)"], ["control", "Control room"], ["field", "Controllers of pumps, valves and breakers"]];
 
 /** Three kinds of statements, never mixed: plausible (simulated), predicted (ML), confirmed (observed). */
 function Kinds({ c }: { c: any }) {
@@ -54,7 +55,8 @@ function SpreadReplay({ r, st }: { r: any; st: any }) {
     nodes.forEach((v) => { const eid = r.paths?.[v]?.[r.paths[v].length - 1]; const e = eid && st.edges.find((x: any) => x.id === eid); if (e) { segs.push([e.source, e.target]); edges.push(e.id); } });
     const blast: Record<string, number> = {}; nodes.forEach((v, j) => { if (j > 0) blast[v] = Math.max(0.25, 1 - (0.7 * j) / Math.max(1, n)); });
     setState({ selected: null, pathSel: null, labNodes: [], focus: nodes.length > 1 ? { key: `lab:${r.id || r.start}:${shown}:${fixed}`, kind: fixed ? "defence" : "attack", segs, edges, marks: nodes, blast: fixed ? {} : blast } : null });
-    if (shown === Math.min(n, 3) || shown === n) scene.current?.frameNodes(nodes.length > 1 ? nodes : [order[0]]);
+    if (nodes.length > 1 && !fixed) { const last = nodes[nodes.length - 1]; const eid = r.paths?.[last]?.slice(-1)[0]; const e = eid && st.edges.find((x: any) => x.id === eid); scene.current?.frameNodes([e ? e.source : nodes[nodes.length - 2], last], true); }   // follow the spread, one step at a time
+    else if (fixed) scene.current?.frameNodes(nodes); else scene.current?.frameNodes([order[0]], true);
   }, [shown, fixed, r]);
   useEffect(() => () => setState({ focus: null }), []);
   if (!risk || n < 2) return <div className="tip">Nothing else can be reached from here, so there is no spread to replay.</div>;
@@ -68,6 +70,7 @@ function SpreadReplay({ r, st }: { r: any; st: any }) {
         <div className="row" style={{ gap: 4 }}><button className="btn small" onClick={() => { if (i > n + 2) setI(1); setPlay(!play || i > n + 2); }}>{play ? "Pause" : i > n + 2 ? "Replay" : "Play"}</button></div></div>
       <input type="range" min={1} max={n + 3} value={i} onChange={(e) => { setI(+e.target.value); setPlay(false); }} aria-label="Replay step" />
       <Heartbeat data={pts} h={54} max={mx} color={fixed ? C.aquaD : cur > risk.before * 1.4 ? C.terra : C.apricot} thr={risk.before} marks={fixed ? [{ i: pts.length - 5, label: "Best fix applied" }] : []} />
+      <div className="steplist">{order.map((id, q) => <span key={id} className={"stepchip" + (q < shown ? " done" : "") + (q === shown - 1 && !fixed ? " now" : "")} title={st.assets[id]?.name}>{q + 1}. {brief(st.assets[id]?.name || id).slice(0, 16)}</span>)}{fixed && <span className="stepchip fixedchip">✓ fix applied</span>}</div>
       <div className="row between" style={{ fontSize: 11.5 }}><span className="dim">risk index, baseline = 100 (steps weighted by closeness to equipment)</span><b style={{ color: fixed ? C.aquaD : C.terra }}>{cur.toFixed(0)}</b></div>
     </div>
   );
@@ -113,7 +116,7 @@ export function LabView() {
   const ids = useMemo(() => Object.values<any>(st.assets).filter((a) => a.id !== "INTERNET"), [st]);
   const load = () => { api(V2 + "/model").then((m) => { setModel(m); if (m.state?.status === "ready") api(V2 + "/risk").then(setRisk).catch(() => setRisk(null)); }).catch(() => {}); api(V2 + "/scenarios").then((r) => setScn(r.scenarios)).catch(() => {}); };   // risk is only requested once the model has finished training
   useEffect(() => { load(); const t = setInterval(() => { if (!risk) load(); }, 3000); return () => clearInterval(t); }, [!!risk]);
-  useEffect(() => { if (labStart) { setStart(labStart); setState({ labStart: null }); } else if (sel && st.assets[sel]) setStart(sel); }, [sel, labStart]);
+  useEffect(() => { if (labStart) { setStart(labStart); setState({ labStart: null }); } else if (sel && st.assets[sel]) setStart(sel); else if (sel && st.physical[sel]?.kind === "site" && st.physical[sel].depends_on?.length) { setStart(st.physical[sel].depends_on[0]); toast("ok", "Starting from a device this site relies on: " + brief(st.assets[st.physical[sel].depends_on[0]]?.name || "")); } }, [sel, labStart]);
   const show = (_r: any) => { setState({ labNodes: [] }); };   // the replay below draws the spread on the map
   const simulate = () => { setBusy("sim"); setRun(null); api(V2 + "/simulate/compromise", { body: { start, credentials: creds && start === "VPN_VENDOR" ? [start] : [] } }).then((r) => { setRes(r); show(r); }).finally(() => setBusy("")); };
   const runScn = (id: string) => { setBusy(id); setRes(null); api(V2 + `/scenarios/${id}/run`, { method: "POST", body: {} }).then((r) => { setRun(r); show(r); }).finally(() => setBusy("")); };
@@ -126,7 +129,8 @@ export function LabView() {
     <>
       <PageHead icon="target" title="What-if" sub="Pick a device, press Simulate" right={<span className={"pill " + (ready ? "safe" : "watch")}>{ready ? "model ready" : model?.state?.status || "loading"}</span>} />
       <Box id="sim" title="Simulate a compromise" icon="mask" value={res ? `${Math.max(0, res.compromised.length - 1)} reached` : "pick a device"} defaultOpen>
-        <select value={start} onChange={(e) => { setStart(e.target.value); setRes(null); }} aria-label="Start device">{ids.map((a: any) => <option key={a.id} value={a.id}>{brief(a.name)}</option>)}</select>
+        <select value={start} onChange={(e) => { setStart(e.target.value); setRes(null); }} aria-label="Start device">{LAYERS.map(([ly, label]) => <optgroup key={ly} label={label}>{ids.filter((a: any) => a.layer === ly).map((a: any) => <option key={a.id} value={a.id}>{brief(a.name)}</option>)}</optgroup>)}</select>
+        <div className="tip">All {ids.length} computers and controllers are listed, grouped by layer; you can also click any of them on the map. Pumps, valves, breakers, hospitals and Mumbai sites are what an attack damages, so they are results here, not starting points.</div>
         {start === "VPN_VENDOR" && <label className="row" style={{ fontSize: 12.5 }}><input type="checkbox" checked={creds} onChange={(e) => setCreds(e.target.checked)} /> attacker holds a vendor credential (synthetic)</label>}
         <button className="btn primary big" disabled={!can(role, "analyst") || !ready || busy === "sim"} onClick={simulate}>{busy === "sim" ? "Simulating…" : "Simulate compromise"}</button>
         <div className="tip">Press the button: the attacker takes this device, then the map replays each step it can really make (every step needs a reason: a weakness, weak access or a stolen login). The line below it is the ward risk climbing.</div>

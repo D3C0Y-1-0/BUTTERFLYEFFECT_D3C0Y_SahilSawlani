@@ -38,13 +38,19 @@ async def lifespan(app):
     state.update(rt=rt, auth=Auth(), rl=RateLimiter(), ag=AirGap(), approvals={})
     rt.start()
     state["lab"] = LabService(rt)
-    state["lab"].train_async()   # about 3 s in the background; GET /api/v2/model reports the state
+    print("[boot] preparing the risk model ...", flush=True)
+    try:
+        state["lab"].train()      # trained (or loaded from the cache) BEFORE the server says it is ready, so no page ever has to wait for it
+    except Exception as e:
+        print(f"[boot] risk model failed: {e}", flush=True)
     print("\n  ATHENA is ready ->  http://127.0.0.1:8000   (risk numbers appear a few seconds after you sign in)\n", flush=True)
     yield
     rt.stop()
 
 
 app = FastAPI(title="ATHENA", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)  # no public schema surface
+from starlette.middleware.gzip import GZipMiddleware  # noqa: E402
+app.add_middleware(GZipMiddleware, minimum_size=1000)   # the map data is large JSON; compressing it makes the first load several times faster
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:8000", "http://127.0.0.1:8000"],
                    allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
 
@@ -234,7 +240,7 @@ def security(u=Depends(user_for("security"))):
 
 # ---------------------------------------------------------------- writes
 class Attack(BaseModel):
-    mode: Literal["standard", "zero_day", "spoof", "wear", "insider"] = "standard"
+    mode: Literal["standard", "zero_day", "spoof", "wear", "insider", "ddos", "swarm", "blitz", "group"] = "standard"
     entry: str | None = Field(default=None, pattern=ID)
     goal: str | None = Field(default=None, pattern=ID)
     stealth: float | None = Field(default=None, ge=1.0, le=12.0)

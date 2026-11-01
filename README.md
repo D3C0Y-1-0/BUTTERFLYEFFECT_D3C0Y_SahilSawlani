@@ -18,7 +18,7 @@ Read [PLAN.md](PLAN.md) (design, algorithms, honest deviations in §27) and [WOR
 If PowerShell refuses to run scripts: `Set-ExecutionPolicy -Scope Process Bypass`.
 
 ```powershell
-.\run.ps1          # creates the venv, builds the UI on first run, starts http://127.0.0.1:8000 (restarts itself if it ever stops)
+.\run.ps1          # creates the venv, builds the UI on first run (and again whenever it is missing, half-built or older than the source), starts http://127.0.0.1:8000 (restarts itself if it ever stops)
 ```
 Open http://127.0.0.1:8000, click a demo account (the login page shows live TOTP codes because `DECOY_DEMO=1`), sign in, press **▶ Tour**.
 Boot takes ~10 s; the first risk analytics take ~30 s (they cache to `data/`).
@@ -27,6 +27,8 @@ Boot takes ~10 s; the first risk analytics take ~30 s (they cache to `data/`).
 un.ps1` again.
 
 **Map controls (mouse only):** wheel = zoom · hold + drag = move · right-button drag (or Shift + drag) = turn · click a device = its card, blast radius and way in · `F` = full screen · `1`-`4` = Overview / Water / Hospitals / Mumbai. The side panel starts closed: pick a page on the left rail or press **Panel**.
+
+**Interface build:** you never need to delete `frontend\dist` by hand. `run.ps1` rebuilds it automatically when it is missing, has no `index.html`, or is older than the files in `frontend\src`; a failed build removes the half-built folder and tells you why. The command is the same as always: `.\run.ps1`.
 
 Developing the UI: `cd frontend && npm run dev` (port 5173 proxies to the API).
 

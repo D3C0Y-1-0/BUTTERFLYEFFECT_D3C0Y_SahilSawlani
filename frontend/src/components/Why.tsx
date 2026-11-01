@@ -6,33 +6,44 @@ import { Bars, fmt, k, LineChart } from "./Charts";
 import { Box, Ic, PageHead, Stat } from "./ui";
 import { ALGOS, TAGC } from "./How";
 
+const TYPE_NAMES = { standard: "Known exploit", zero_day: "Zero-day", spoof: "Fake sensor readings", wear: "Breaker wear", insider: "Insider", ddos: "DDoS flood", swarm: "Many small attacks", blitz: "Fast and loud", group: "Coordinated group" };
 const pct = (x: number, d = 0) => (x * 100).toFixed(d) + "%";
 
 
 /** Real results for growing batches of attacks: every point is a measured run, nothing is forced to 100%. */
 function BatchCharts({ rows }: { rows: any[] }) {
-  const w = 560, h = 190, L = 40, R = 12, T = 14, B = 30; const n = rows.length; const x = (i: number) => L + (i / Math.max(1, n - 1)) * (w - L - R); const y = (v: number) => T + (1 - v / 100) * (h - T - B);
-  const lines = [{ k: "detected_pct", name: "attacks detected", c: C.aquaD }, { k: "loss_cut_pct", name: "service loss avoided vs no response", c: "#7B61FF" }, { k: "contained_pct", name: "attacks contained", c: C.apricot }, { k: "reached_physical_pct", name: "reached physical equipment", c: C.terra }];
-  const mx = Math.max(...rows.map((r) => Math.max(r.loss_none, r.loss_decoy, r.loss_iso)), 1); const gw = (w - L - R) / n;
+  const w = 560, h = 200, L = 42, R = 14, T = 14, B = 34;
+  const lx = (v: number) => Math.log10(Math.max(1, v)); const lo = lx(rows[0].batch), hi = lx(rows[rows.length - 1].batch);
+  const x = (v: number) => L + ((lx(v) - lo) / Math.max(1e-9, hi - lo)) * (w - L - R); const FLOOR = 70; const y = (v: number) => T + (1 - (Math.max(FLOOR, Math.min(100, v)) - FLOOR) / (100 - FLOOR)) * (h - T - B);
+  const pick = (r: any, k: string) => (typeof r[k] === "number" ? r[k] : null);
+  const lines = [{ k: "stopped_before_damage_pct", name: "damaging attacks stopped before equipment was touched", c: C.aquaD }, { k: "intruders_detected_pct", name: "intruders caught (even harmless ones)", c: C.apricot }, { k: "loss_cut_pct", name: "service loss avoided vs no response", c: "#7B61FF" }];
+  // loss bars: log scale so ATHENA's small loss is visible next to the large ones; every bar carries its number
+  const vals = rows.flatMap((r) => [r.loss_decoy, r.loss_none, r.loss_iso]); const top = Math.log10(Math.max(10, ...vals) * 1.3); const bh = (v: number) => (Math.log10(Math.max(1, v) + 1) / top) * (h - T - B);
+  const gw = (w - L - R) / rows.length; const fm = (v: number) => (v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1) + "k" : String(Math.round(v)));
   return (
     <div className="col" style={{ gap: 10 }}>
-      <b style={{ fontSize: 12.5 }}>Percent measured at each batch size</b>
+      <b style={{ fontSize: 12.5 }}>Percent at each batch size (batch size = number of attacks, log scale; the vertical axis starts at 70% so small differences show)</b>
       <svg viewBox={`0 0 ${w} ${h}`} width="100%" role="img" aria-label="Performance by batch size">
-        {[0, 25, 50, 75, 100].map((g) => <g key={g}><line x1={L} x2={w - R} y1={y(g)} y2={y(g)} stroke={C.line} /><text x={L - 5} y={y(g) + 4} textAnchor="end" fontSize="10" fill={C.dim}>{g}%</text></g>)}
-        {rows.map((r, i) => <text key={i} x={x(i)} y={h - 10} textAnchor="middle" fontSize="10.5" fontWeight="700" fill={C.ink}>{r.batch}</text>)}
+        {[70, 80, 90, 100].map((g) => <g key={g}><line x1={L} x2={w - R} y1={y(g)} y2={y(g)} stroke={C.line} /><text x={L - 5} y={y(g) + 4} textAnchor="end" fontSize="10" fill={C.dim}>{g}%</text></g>)}
+        {rows.map((r) => <g key={r.batch}><line x1={x(r.batch)} x2={x(r.batch)} y1={T} y2={h - B} stroke={C.line} strokeDasharray="2 4" /><text x={x(r.batch)} y={h - 14} textAnchor="middle" fontSize="10.5" fontWeight="700" fill={C.ink}>{r.batch >= 1000 ? r.batch / 1000 + "k" : r.batch}</text></g>)}
         <text x={w - R} y={h - 1} textAnchor="end" fontSize="9.5" fill={C.dim}>attacks in the batch</text>
-        {lines.map((l) => <g key={l.k}><polyline fill="none" stroke={l.c} strokeWidth="2.6" strokeLinejoin="round" points={rows.map((r, i) => `${x(i)},${y(r[l.k])}`).join(" ")} />{rows.map((r, i) => <circle key={i} cx={x(i)} cy={y(r[l.k])} r="3.6" fill="#fff" stroke={l.c} strokeWidth="2"><title>{`${l.name}: ${r[l.k]}% at ${r.batch} attacks`}</title></circle>)}</g>)}
+        {lines.map((l) => { const pts = rows.filter((r) => pick(r, l.k) !== null); return <g key={l.k}><polyline fill="none" stroke={l.c} strokeWidth="2.6" strokeLinejoin="round" points={pts.map((r) => `${x(r.batch)},${y(r[l.k])}`).join(" ")} />{pts.map((r) => <circle key={r.batch} cx={x(r.batch)} cy={y(r[l.k])} r="3.8" fill="#fff" stroke={l.c} strokeWidth="2"><title>{`${l.name}: ${r[l.k]}% at ${r.batch} attacks`}</title></circle>)}</g>; })}
       </svg>
       <div className="row wrap tip" style={{ gap: 12 }}>{lines.map((l) => <span key={l.k}><b style={{ color: l.c }}>━</b> {l.name}</span>)}</div>
-      <b style={{ fontSize: 12.5 }}>Average service lost per attack (lower is better)</b>
+      <b style={{ fontSize: 12.5 }}>Average service lost per attack (lower is better; log scale)</b>
       <svg viewBox={`0 0 ${w} ${h}`} width="100%" role="img" aria-label="Average loss by batch size">
-        {rows.map((r, i) => { const x0 = L + i * gw + gw * 0.12, bw = gw * 0.25; return <g key={i}>{[["loss_decoy", C.aquaD], ["loss_none", C.terra], ["loss_iso", C.apricot]].map(([k2, c], j) => { const v = r[k2 as string]; const hh = (v / mx) * (h - T - B); return <rect key={j} x={x0 + j * bw} y={h - B - hh} width={bw - 2} height={hh} rx="2" fill={c as string}><title>{`${k2}: ${v}`}</title></rect>; })}<text x={L + i * gw + gw / 2} y={h - 10} textAnchor="middle" fontSize="10.5" fontWeight="700" fill={C.ink}>{r.batch}</text></g>; })}
+        {rows.map((r, i) => { const x0 = L + i * gw + gw * 0.1, bw = gw * 0.27; return <g key={r.batch}>{[["loss_decoy", C.aquaD], ["loss_none", C.terra], ["loss_iso", C.apricot]].map(([k2, c], j) => { const v = r[k2 as string] ?? 0; const hh = Math.max(3, bh(v)); return <g key={j}><rect x={x0 + j * bw} y={h - B - hh} width={bw - 2} height={hh} rx="2" fill={c as string}><title>{`${k2}: ${v}`}</title></rect><text x={x0 + j * bw + (bw - 2) / 2} y={h - B - hh - 3} textAnchor="middle" fontSize="8.5" fontWeight="700" fill={C.ink}>{fm(v)}</text></g>; })}<text x={L + i * gw + gw / 2} y={h - 14} textAnchor="middle" fontSize="10.5" fontWeight="700" fill={C.ink}>{r.batch >= 1000 ? r.batch / 1000 + "k" : r.batch}</text></g>; })}
         <line x1={L} x2={w - R} y1={h - B} y2={h - B} stroke={C.line} />
       </svg>
-      <div className="row wrap tip" style={{ gap: 12 }}><span><b style={{ color: C.aquaD }}>■</b> DECOY</span><span><b style={{ color: C.terra }}>■</b> no response</span><span><b style={{ color: C.apricot }}>■</b> cut everything</span></div>
-      <table><thead><tr><th>Attacks</th><th>Detected</th><th>Median alarm</th><th>Loss avoided</th><th>Devices cut</th><th>Run time</th><th>Per attack</th></tr></thead><tbody>
-        {rows.map((r) => <tr key={r.batch}><td><b>{r.batch}</b></td><td>{r.detected_pct}%</td><td>{r.median_detect_minutes ?? "–"} min</td><td>{r.loss_cut_pct}%</td><td>{r.devices_cut}</td><td>{r.seconds}s</td><td>{r.per_attack_s}s</td></tr>)}
-      </tbody></table>
+      <div className="row wrap tip" style={{ gap: 12 }}><span><b style={{ color: C.aquaD }}>■</b> ATHENA</span><span><b style={{ color: C.terra }}>■</b> no response</span><span><b style={{ color: C.apricot }}>■</b> cut everything</span></div>
+      <div className="tablewrap"><table><thead><tr><th>Attacks</th><th>Would harm equipment</th><th>Stopped before equipment was touched</th><th>Intruders caught</th><th>Alarm: median / slowest</th><th>Loss avoided</th><th>Worst single loss</th><th>Run time</th></tr></thead><tbody>
+        {rows.map((r) => <tr key={r.batch}><td><b>{r.batch}</b></td><td>{r.harmful_physical ?? "–"}</td>
+          <td>{r.stopped_before_damage_pct != null ? <><b>{r.stopped_before_damage_pct}%</b><div className="dim" style={{ fontSize: 10.5 }}>{r.reached_equipment} got through · at least {r.stopped_before_damage_low95}%</div></> : "–"}</td>
+          <td>{r.intruders_detected_pct ?? "–"}%{r.intruders_detected_low95 != null && <div className="dim" style={{ fontSize: 10.5 }}>at least {r.intruders_detected_low95}%</div>}</td>
+          <td>{r.median_detect_minutes ?? "–"} / {r.slowest_detect_minutes != null ? Math.round(r.slowest_detect_minutes) : "–"} min</td><td>{r.loss_cut_pct}%</td>
+          <td>{r.worst_single_loss != null ? <>{fmt(r.worst_single_loss)}<div className="dim" style={{ fontSize: 10.5 }}>{r.attacks_with_any_loss} attacks lost anything</div></> : "–"}</td>
+          <td>{r.seconds >= 3600 ? (r.seconds / 3600).toFixed(1) + " h" : r.seconds >= 120 ? Math.round(r.seconds / 60) + " min" : Math.round(r.seconds) + " s"}</td></tr>)}
+      </tbody></table></div>
     </div>
   );
 }
@@ -49,7 +60,7 @@ export function WhyView() {
   const cut = e9 ? 1 - e9.mean_loss_decoy / Math.max(1, e9.mean_loss_no_response) : null;
   const det = e10 ? Object.values<any>(e10.detection).map((v: any) => v["fused (network + physics)"]) : [];
   const detOk = det.reduce((a, d) => a + parseInt(String(d.detected).split("/")[0]), 0), detAll = det.reduce((a, d) => a + parseInt(String(d.detected).split("/")[1]), 0);
-  const mm = model?.meta; const e17 = r("E17"); const rows17: any[] = e17?.rows || []; const last17 = rows17[rows17.length - 1]; const first17 = rows17[0];
+  const [sel, setSel] = useState(-1); const mm = model?.meta; const e17 = r("E17"); const rows17: any[] = e17?.rows || []; const last17 = rows17[rows17.length - 1]; const selIdx = sel >= 0 && sel < rows17.length ? sel : rows17.length - 1; const selRow = rows17[selIdx]; const first17 = rows17[0];
   return (
     <>
       <PageHead icon="chart" title="Why choose ATHENA" sub="Numbers measured by running the system, not typed in" right={keys.length ? <span className="pill safe">{met} of {keys.length} goals met</span> : undefined} />
@@ -61,50 +72,84 @@ export function WhyView() {
       </div>
       <div className="tip" style={{ textAlign: "center" }}><Ic n="check" /> Re-run any number: <b>python backend/experiments.py</b> writes <b>data/experiments.json</b> (last run {E._meta?.generated || "–"}).</div>
 
-      <Box id="why_more" title="More numbers" icon="chart" value="measured" defaultOpen>
+      <Box id="why_fit" title="Government compliance and integration" icon="lock" value="India" defaultOpen>
+        <div className="tablewrap"><table><thead><tr><th>Rule or standard</th><th>What it asks</th><th>What ATHENA does</th><th>Status</th></tr></thead><tbody>
+          <tr><td><b>CERT-In Directions (28 Apr 2022)</b></td><td>Report an incident within 6 hours</td><td>A 6-hour clock starts at the alarm; one click exports the report{comp ? ` (${comp.clocks.length} clock${comp.clocks.length === 1 ? "" : "s"} now)` : ""}</td><td><span className="pill safe">Built</span></td></tr>
+          <tr><td><b>CERT-In Directions</b></td><td>Keep logs 180 days, in India</td><td>Tamper-evident log vault{comp ? `, ${comp.vault.retention_days}-day rule` : ""}</td><td><span className="pill safe">Built</span></td></tr>
+          <tr><td><b>CERT-In Directions</b></td><td>Synchronise clocks</td><td>Clock-sync guard{comp ? (comp.time.ok ? ": all in sync" : ": drift found") : ""}; events from drifting clocks are marked uncertain</td><td><span className="pill safe">Built</span></td></tr>
+          <tr><td><b>CERT-In Smart City Guidelines 2025 / MoHUA advisories</b></td><td>Login security, separation of networks, parts list, incident handling</td><td>MFA and roles, risky-link cutting, parts list (SBOM){comp ? ` ${(comp.sbom_coverage * 100).toFixed(0)}%` : ""}, response playbooks</td><td><span className="pill safe">Built</span></td></tr>
+          <tr><td><b>IEC 62443, NIST CSF 2.0, MITRE ATT&amp;CK for ICS</b></td><td>Zones and conduits, identify-protect-detect-respond-recover</td><td>Layers and links follow zones; findings use ATT&amp;CK technique names</td><td><span className="pill watch">Aligned</span></td></tr>
+          <tr><td><b>NCIIPC guidelines, IT Act s.70B, DPDP Act 2023</b></td><td>Protect critical systems; report; handle personal data</td><td>Reads device data only; no personal data is stored; reporting follows CERT-In</td><td><span className="pill watch">Design level</span></td></tr>
+        </tbody></table></div>
+        <b style={{ fontSize: 12.5 }}>How it plugs into a real city network</b>
+        <div className="tablewrap"><table><thead><tr><th>Connection</th><th>How</th><th>Status</th></tr></thead><tbody>
+          <tr><td>Network traffic</td><td>Read-only copy from a mirror (SPAN) port; never inline, never in the control loop</td><td><span className="pill watch">Design level (simulated here)</span></td></tr>
+          <tr><td>Plant data</td><td>Reads the historian and SCADA readings (Modbus / OPC UA) read-only</td><td><span className="pill watch">Design level (simulated here)</span></td></tr>
+          <tr><td>Reports and logs</td><td>JSON incident report in CERT-In form; REST API with signed, expiring tokens and roles</td><td><span className="pill safe">Built</span></td></tr>
+          <tr><td>Isolated networks</td><td>Signed snapshot files move between air-gapped sites and are rejected if replayed, altered or signed by an unknown key</td><td><span className="pill safe">Built</span></td></tr>
+          <tr><td>SIEM and ticketing</td><td>Syslog / CEF export and a ticket webhook</td><td><span className="pill">Planned</span></td></tr>
+          <tr><td>Staff sign-in</td><td>Single sign-on with the city's directory (LDAP / SAML)</td><td><span className="pill">Planned</span></td></tr>
+        </tbody></table></div>
+        <div className="steps3"><div><b>1 Read</b><span>Mirror port, historian and logs. Read-only.</span></div><div><b>2 Think</b><span>Runs beside the plant, never inside the control loop.</span></div><div><b>3 Ask</b><span>Safe steps are automatic; risky ones need a person (two for big ones).</span></div></div>
+        <div className="tip">We say <b>aligned with</b> these rules, not "certified". "Design level" and "Planned" are not built in this prototype.</div>
+      </Box>
+
+      <Box id="why_feas" title="Feasibility: can a city really run this?" icon="check" value="one machine" defaultOpen>
         <div className="grid3">
-          {e9 && <Stat v={`${e9.detected_pct}%`} l="attacks detected (80-attack set)" color={C.aquaD} />}
-          {e9 && <Stat v={`${e9.median_detect_minutes} min`} l="median time to alarm" color={C.aquaD} />}
-          {e9 && <Stat v={`${e9.hospital_hours_decoy}h`} l={`hospital water lost (vs ${e9.hospital_hours_none}h with no response)`} color={C.aquaD} />}
-          {mm && <Stat v={mm.rows?.toLocaleString()} l="risk-model training rows" />}
-          {mm && <Stat v={mm.test_rows?.toLocaleString()} l="unseen cases it was tested on" />}
-          {mm && <Stat v={mm.spearman_heldout} l="forecast rank match" color={C.aquaD} />}
-          {e3 && <Stat v={`${e3.greedy_gap_pct}%`} l={`fix plan from the best of ${fmt(e3.feasible_plans_checked)} plans`} />}
-          {e6 && <Stat v={`${fmt(e6.speedup)}×`} l="fast guesser speed-up" />}
-          {e12 && <Stat v={e12.candidate_actions_blocked_in_scenarios} l="unsafe actions blocked" color={C.aquaD} />}
+          <Stat v={e11 ? `${e11.runs[e11.runs.length - 1].seconds}s` : "–"} l={e11 ? `to analyse a ${fmt(e11.runs[e11.runs.length - 1].nodes)}-device city` : "city analysis"} color={C.aquaD} />
+          <Stat v={e11 ? `${e11.runs[e11.runs.length - 1].mem_mb} MB` : "–"} l="memory for that city" color={C.aquaD} />
+          <Stat v="0" l="GPUs, cloud services or internet links needed" color={C.aquaD} />
         </div>
+        <div className="steps3"><div><b>1 Read</b><span>Takes a read-only copy of traffic and plant readings. Never inline.</span></div><div><b>2 Think</b><span>Runs beside the plant on one ordinary computer, in about 10 seconds from start.</span></div><div><b>3 Ask</b><span>Safe, reversible steps run on their own; risky ones need a person (two for big ones).</span></div></div>
+        <div className="tip">Needs: one Windows or Linux machine with Python 3.11+. Works offline. Not built yet: live mirror-port and historian connectors, SIEM export and city sign-in (see the table above).</div>
       </Box>
 
-      <Box id="why_batches" title="Growing batches of attacks" icon="layers" value={last17 ? `${first17.batch} to ${last17.batch} attacks` : "run E17"} defaultOpen>
-        {rows17.length ? <>
-          <div className="tiles">
-            <div className="tile"><b>{last17.detected_pct}%</b><span>detected at {last17.batch} attacks</span><small>{first17.detected_pct}% at {first17.batch}</small></div>
-            <div className="tile"><b>{last17.loss_cut_pct}%</b><span>service loss avoided</span><small>{first17.loss_cut_pct}% at {first17.batch}</small></div>
-            <div className="tile"><b>{last17.median_detect_minutes ?? "–"} min</b><span>median time to alarm</span><small>at {last17.batch} attacks</small></div>
-            <div className="tile"><b>{last17.per_attack_s}s</b><span>per attack, simulated end to end</span><small>{first17.per_attack_s}s at {first17.batch}</small></div>
-          </div>
-          <BatchCharts rows={rows17} />
-          <div className="tip">{e17.note} Lines that do not reach 100% are real: some attacks (for example stealthy or insider ones) are noticed late or only after equipment is touched, and that is shown, not hidden.</div>
-        </> : <div className="tip">Run <b>python backend/experiments.py E17</b> to measure this.</div>}
-      </Box>
+      <Box id="why_scale" title="Scalability" icon="layers" value={rows17.length ? `up to ${last17.batch} attacks` : "…"} defaultOpen>
+        <b style={{ fontSize: 12.5 }}>Bigger city</b>
 
-      <Box id="why_batch" title="Tested on batches of attacks" icon="bolt" value={e9 ? `${e9.scenarios} attacks` : "…"} defaultOpen>
-        {e9 ? <>
-          <Bars rows={[{ label: "ATHENA", value: e9.mean_loss_decoy, color: C.aquaD }, { label: "No response", value: e9.mean_loss_no_response, color: C.terra }, { label: "Cut everything", value: e9.mean_loss_isolate_all, color: C.apricot }]} />
-          <div className="tip">Average service lost per attack (lower is better). {e9.attacks_that_would_hurt_without_response} of {e9.scenarios} attacks would have hurt the city without a response.</div>
-          <div className="grid3"><Stat v={`${e9.detected_pct}%`} l="detected" color={C.aquaD} /><Stat v={`${e9.hospital_hours_decoy}h`} l="hospital water lost" color={C.aquaD} /><Stat v={`${e9.mean_devices_disconnected_decoy}`} l={`devices cut (vs ${e9.devices_disconnected_isolate_all})`} /></div>
-        </> : <div className="tip">Run backend/experiments.py to fill this in.</div>}
-      </Box>
-
-      <Box id="why_scale" title="Scales to a whole city" icon="layers" value={e11 ? `${fmt(e11.runs[e11.runs.length - 1].nodes)} devices` : "…"} defaultOpen>
         {e11 ? <>
           <LineChart h={110} series={[{ name: "seconds", color: C.terra, data: e11.runs.map((x: any) => x.seconds), width: 3.4 }]} />
           <table><thead><tr><th>Devices</th><th>Links</th><th>Time</th><th>Memory</th></tr></thead><tbody>{e11.runs.map((x: any) => <tr key={x.nodes}><td><b>{fmt(x.nodes)}</b></td><td>{fmt(x.edges)}</td><td>{x.seconds}s</td><td>{x.mem_mb} MB</td></tr>)}</tbody></table>
           <div className="tip">100 times more devices took about {e11.growth_10x_nodes}× longer per 10× growth: close to straight-line growth, so a bigger city is slower, not impossible.</div>
         </> : null}
+      
+        <b style={{ fontSize: 12.5 }}>Bigger batches of attacks</b>
+
+        {rows17.length ? <>
+          <div className="tiles">
+            <div className="tile"><b>{last17.stopped_before_damage_pct}%</b><span>of damaging attacks stopped before equipment was touched</span><small>{last17.reached_equipment} of {last17.harmful_physical} got through</small></div>
+            <div className="tile"><b>{last17.loss_cut_pct}%</b><span>service loss avoided</span><small>{first17.loss_cut_pct}% at {first17.batch}</small></div>
+            <div className="tile"><b>{last17.median_detect_minutes ?? "–"} min</b><span>median time to alarm</span><small>90% within {last17.p90_detect_minutes != null ? Math.round(last17.p90_detect_minutes) : "–"} min</small></div>
+            <div className="tile"><b>{e17.false_alarm_runs}/{e17.calm_runs}</b><span>calm runs with a false alarm</span><small>{e17.calm_hours} hours with no attack</small></div>
+          </div>
+          <div className="tip" style={{ display: "none" }}>Every batch holds an equal number of each of the 8 attack types (known exploit, zero-day, fake readings, breaker wear, insider, DDoS flood, many small attacks, fast and loud) and cycles evenly through the 8 pieces of equipment, so no batch is easier than another.</div>
+          <BatchCharts rows={rows17} />
+          {e17.by_type && <><b style={{ fontSize: 12.5 }}>By attack type, in the largest batch ({last17.batch} attacks)</b>
+            <table><thead><tr><th>Attack type</th><th>Attacks</th><th>Harmful</th><th>Harmful caught</th><th>Alarm median / 99%</th><th>Loss: none → ATHENA</th><th>Reached equipment</th></tr></thead><tbody>
+              {Object.entries<any>(e17.by_type).map(([t, v]) => <tr key={t}><td><b>{(TYPE_NAMES as any)[t] || t}</b></td><td>{v.attacks}</td><td>{v.harmful}</td><td>{v.harmful_detected_pct ?? "–"}%</td><td>{v.median_detect_minutes ?? "–"} / {v.p99_detect_minutes != null ? Math.round(v.p99_detect_minutes) : "–"} min</td><td>{fmt(v.loss_none)} → <b>{fmt(v.loss_athena)}</b></td><td>{v.reached_equipment}</td></tr>)}
+            </tbody></table></>}
+          <div className="tip">Batch size is the number of attacks. Every batch has an even mix of all 8 attack types. The attacker and the defence are simulated separately, so these numbers show how the system behaves inside the simulation; real-world results would be lower. Intruders who get in but do no harm are the hardest to catch, so they are shown separately.</div>
+        </> : <div className="tip">Run <b>python backend/experiments.py E17</b> to measure this.</div>}
+      
+
+        {rows17.length ? <>
+          <div className="seg" role="tablist" aria-label="Batch size">{rows17.map((r: any, i: number) => <button key={r.batch} className={i === selIdx ? "on" : ""} onClick={() => setSel(i)}>{r.batch}</button>)}</div>
+          <Bars rows={[{ label: "ATHENA", value: selRow.loss_decoy, color: C.aquaD }, { label: "No response", value: selRow.loss_none, color: C.terra }, { label: "Cut everything", value: selRow.loss_iso, color: C.apricot }]} />
+          <div className="tip">Average service lost per attack across {selRow.batch} attacks (lower is better).</div>
+          <div className="grid3">
+            <Stat v={`${selRow.stopped_before_damage_pct ?? "–"}%`} l={`damaging attacks stopped in time (${selRow.harmful_physical ?? "–"} would have harmed equipment)`} color={C.aquaD} />
+            <Stat v={`${selRow.intruders_detected_pct ?? "–"}%`} l="intruders caught" color={C.apricot} />
+            <Stat v={`${selRow.median_detect_minutes ?? "–"} min`} l="median time to alarm" color={C.aquaD} />
+            <Stat v={`${selRow.loss_cut_pct}%`} l="service loss avoided" color={C.aquaD} />
+            <Stat v={selRow.worst_single_loss != null ? fmt(selRow.worst_single_loss) : "–"} l="worst single attack (loss)" color={C.terra} />
+            <Stat v={`${selRow.devices_cut}`} l="devices cut on average (cutting everything = 27)" />
+          </div>
+        </> : <div className="tip">Run backend/experiments.py to fill this in.</div>}
+      
       </Box>
 
-      <Box id="why_acc" title="How accurate are the models?" icon="target" value="measured">
+      <Box id="why_metrics" title="Metrics" icon="chart" value="measured" defaultOpen>
+
         <table><thead><tr><th>Model</th><th>Result</th><th>Goal</th></tr></thead><tbody>
           {e1 && <tr><td><b>Risk ranking</b><div className="dim">Which devices hurt most</div></td><td>Spearman {e1["ours (3000 worlds)"].spearman}, top-10 overlap {e1["ours (3000 worlds)"].top10_overlap}/10 (CVSS alone: {e1.cvss?.spearman})</td><td>≥ 0.90 ✓</td></tr>}
           {e10 && <tr><td><b>Attack detector</b><div className="dim">Watchdog on unseen attack types</div></td><td>{detOk}/{detAll} detected, median delay under 30 min</td><td>&lt; 30 min ✓</td></tr>}
@@ -115,23 +160,33 @@ export function WhyView() {
           {e16 && <tr><td><b>Zero-day library</b><div className="dim">Second encounter</div></td><td>cost {k(e16.first_encounter)} → {k(e16.repeat_encounter)}</td><td>lower ✓</td></tr>}
         </tbody></table>
         <div className="tip">All accuracy is measured against the simulator on cases the model never saw. It is not a claim about real-world incidents.</div>
+      
+
+        {E.E21?.result ? (() => { const p = E.E21.result; return <>
+          <div className="tiles">
+            <div className="tile"><b>{p.top5_hit_pct}%</b><span>of attacks that got in took a device from the forecast's top 5</span><small>{p.got_in} of {p.attacks} attacks got in</small></div>
+            <div className="tile"><b>{p.top10_hit_pct}%</b><span>took a device from the top 10 (of {p.forecast_list_size})</span><small>precision at 5: {p.precision_at_5_pct}%</small></div>
+            <div className="tile"><b>{p.entry_in_top10_pct}%</b><span>of entry doors were in the top-10 forecast</span><small>top 5: {p.entry_in_top5_pct}%</small></div>
+            <div className="tile"><b>{p.next_step_top1_pct ?? "–"}%</b><span>next step guessed right when the alarm opened (top 3: {p.next_step_top3_pct ?? "–"}%)</span><small>{p.next_step_attacks} attacks with a next step</small></div>
+          </div>
+          <table><thead><tr><th>Attack type</th><th>Attacks</th><th>Got in</th><th>Top-5 hit</th><th>Top-10 hit</th><th>Entry in top 10</th></tr></thead><tbody>
+            {Object.entries<any>(p.by_type).map(([t, v]) => <tr key={t}><td><b>{(TYPE_NAMES as any)[t] || t}</b></td><td>{v.attacks}</td><td>{v.got_in}</td><td>{v.top5_hit_pct ?? "–"}%</td><td>{v.top10_hit_pct ?? "–"}%</td><td>{v.entry_in_top10_pct ?? "–"}%</td></tr>)}
+          </tbody></table>
+          <div className="tip">{p.note} Measured on the simulator, with the same attacker that generates the test attacks, so it is an upper bound on real-world accuracy.</div></>; })() : <div className="tip">Run <b>python backend/experiments.py E21</b>.</div>}
+      
       </Box>
 
-      <Box id="why_algo" title="The algorithms behind it" icon="sparkle" value={`${ALGOS.length}`} defaultOpen>
+      <Box id="why_works" title="Why ATHENA works" icon="sparkle" value="5 reasons" defaultOpen>
+        <div className="rule"><b>It watches both the network and the physics.</b><span>Odd traffic and a broken physics rule are fused into one alarm. A hacker can fake data but not physics.</span></div>
+        <div className="rule"><b>It predicts before it reacts.</b><span>It ranks which devices fall next and which route an attacker will take, so fixes go where they matter.</span></div>
+        <div className="rule"><b>It tests every move first.</b><span>A response is tried on a copy of the city; if a hospital would get worse, it is refused.</span></div>
+        <div className="rule"><b>It cuts only what is needed.</b><span>A few devices are cut instead of the whole city, so water and power keep running.</span></div>
+        <div className="rule"><b>It stays honest.</b><span>Attacker and defence are simulated separately, numbers carry confidence bounds, and misses are shown.</span></div>
+        <details><summary className="tip" style={{ cursor: "pointer" }}>The {ALGOS.length} algorithms behind it</summary>
+
         <div className="algotable">{ALGOS.map((x) => <div key={x.name}><span className="atag" style={{ background: TAGC[x.tag] }}>{x.tag}</span><div><b>{x.name}</b><small>{x.plain}</small></div><em>{x.where}</em></div>)}</div>
-        <div className="tip">Each one is explained, with its rules and numbers, on the <b>How it works</b> page.</div>
-      </Box>
-
-      <Box id="why_fit" title="Fits the rules and your network" icon="lock" value="CERT-In">
-        <div className="chips">
-          <span className="chip ok">6-hour report clock {comp ? `· ${comp.clocks.length} open` : ""}</span>
-          <span className="chip ok">Logs kept in India {comp ? `· ${comp.vault.retention_days} days` : "· 180 days"}</span>
-          <span className="chip ok">Clock-sync guard {comp ? (comp.time.ok ? "· in sync" : "· drift!") : ""}</span>
-          <span className="chip ok">Parts list (SBOM) {comp ? `· ${(comp.sbom_coverage * 100).toFixed(0)}%` : ""}</span>
-          <span className="chip">IEC 62443 zones and conduits</span><span className="chip">MITRE ATT&amp;CK for ICS</span><span className="chip">Smart-city device classes (Annexure II)</span>
-        </div>
-        <div className="steps3"><div><b>1 Read</b><span>Mirror port, historian and logs. Read-only.</span></div><div><b>2 Think</b><span>Runs beside the plant, never inside the control loop.</span></div><div><b>3 Ask</b><span>Safe steps automatic; risky ones need a person (two for big ones).</span></div></div>
-        <div className="tip">Works offline: signed snapshot files move between isolated networks. We say <b>aligned with</b> these rules, not "certified". Deployment steps such as TLS between services are design-level.</div>
+      
+        </details>
       </Box>
 
     </>

@@ -126,3 +126,14 @@
 }
 @media (orientation: portrait) and (max-width: 900px) { .timeline, .legend { display: none; } }
 .login .sub { text-align: center; }
+.gate { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; } .gbar { position: relative; height: 10px; background: #F4E8D8; border-radius: 6px; } .gbar i { position: absolute; inset: 0 auto 0 0; border-radius: 6px; transition: width .4s; } .gbar u { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); }
+
+.followbtn { position: absolute; left: 50%; transform: translateX(-50%); top: 58px; z-index: 6; border: 1px solid var(--line); background: rgba(255, 247, 238, .95); border-radius: 99px; padding: 6px 14px; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: var(--shadow); } .followbtn.on { background: #E11D48; color: #fff; border-color: #E11D48; }
+
+.badge1 { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; color: #fff; font-size: 9px; font-weight: 800; margin-right: 7px; flex: none; }
+
+.tablewrap { overflow-x: auto; max-width: 100%; } .tablewrap table { min-width: 560px; }
+
+.swarm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px; } .swarm-card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 7px 9px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; cursor: pointer; } .swarm-card b { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--terra-d); } .swarm-card small { color: var(--dim); } .swarm-card em { font-style: normal; font-weight: 800; font-size: 11px; } .swarm-card em.quiet { color: #B56400; } .swarm-card em.warn { color: #E11D48; } .swarm-card em.ok { color: var(--aqua-d); } .swarm-card.cut { background: var(--aqua); border-color: var(--aqua-d); }
+.timeline-list { display: flex; flex-direction: column; gap: 5px; }
+.steplist { display: flex; flex-wrap: wrap; gap: 4px; } .stepchip { font-size: 10.5px; padding: 2px 7px; border-radius: 99px; background: #F4E8D8; color: #85624C; font-weight: 700; } .stepchip.done { background: #FADADD; color: #A3122F; } .stepchip.now { background: #E11D48; color: #fff; } .stepchip.fixedchip { background: var(--aqua); color: #1D5C64; }

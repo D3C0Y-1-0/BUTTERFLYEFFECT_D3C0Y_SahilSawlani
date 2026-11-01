@@ -16,6 +16,9 @@ from sklearn.neural_network import MLPRegressor
 from .twin import LiveTwin
 
 
+CS_K_SD, CS_H_MUL, CS_H_ADD = 1.0, 1.6, 2.0
+
+
 class Traffic:
     """Normal OT/IT traffic generator + flow-key feature space (every edge x read/write)."""
 
@@ -93,6 +96,8 @@ class Watchdog:
         self.expected = {}      # tag -> minute until which a change is expected/authorised
         self.persist = {}
         self.tank_hist = {"T1": deque(maxlen=20), "T2": deque(maxlen=20)}
+        self.cs = 0.0                 # CUSUM evidence: small, repeated signs add up until they cross a line
+        self.ev_buf = deque(maxlen=25)
 
     def authorise(self, tag, minute, window=6):
         self.expected[tag] = minute + window
@@ -193,6 +198,7 @@ class Watchdog:
         self.fusion = LogisticRegression(C=4.0, class_weight={0: normal_weight, 1: 1.0}, max_iter=800).fit(X, y)
         self.offset = 0.0
         z0 = self.fusion.decision_function(X[y == 0]); z1 = self.fusion.decision_function(X[y == 1])
+        self.cs_k, self.cs_h = -1.0, 8.0                                  # defaults; build_watchdog calibrates them on attack-free episodes
         self.calib = dict(normal_mean_p=round(float((1 / (1 + np.exp(-z0))).mean()), 3), normal_max_p=round(float(1 / (1 + np.exp(-z0.max()))), 3),
                           positive_recall_at_0_85=round(float((z1 > 1.73).mean()), 3))
 
@@ -200,13 +206,21 @@ class Watchdog:
         net = self.network(counts)
         pz, viol = self.physics(tele, minute)
         f = self.feat(net, pz, decoy_hits)
-        p = float(1 / (1 + np.exp(-(self.fusion.decision_function(f[None, :])[0] - self.offset)))) if self.fusion is not None else 0.0
+        zf = float(self.fusion.decision_function(f[None, :])[0]) if self.fusion is not None else -9.0
+        p = float(1 / (1 + np.exp(-(zf - self.offset)))) if self.fusion is not None else 0.0
         if pz >= 8.0:
             p = max(p, 0.9)      # a broken physical law is an alarm on its own (no signature needed)
         if decoy_hits:
             p = max(p, 0.995)
+        # sequential detection (CUSUM): a stealthy intruder never trips the single-window alarm, but it keeps the fused score a little above normal for many minutes
+        self.cs = max(0.0, 0.97 * self.cs + zf - getattr(self, "cs_k", 9.0))
+        if net["evidence"]:
+            self.ev_buf.append(net["evidence"])
+        cusum_alarm = self.cs > getattr(self, "cs_h", 1e9)
+        if cusum_alarm:
+            p = max(p, 0.9)
         ev_nodes = []
-        for e in net["evidence"]:
+        for e in net["evidence"] or ([x for grp in self.ev_buf for x in grp] if cusum_alarm else []):
             ev_nodes += [e["src"], e["dst"]]
         for v in viol:
             if v["node"]:
@@ -232,53 +246,3 @@ class Watchdog:
             self.drift_events += 1
             return True
         return False
-
-
-def build_watchdog(ward, threat, seed=0, episodes=36, verbose=False):
-    """Train the fusion model on labelled simulated episodes (normal vs each attack mode)."""
-    from .adversary import Adversary
-    tr = Traffic(ward, seed=seed + 11)
-    wd = Watchdog(ward, tr, seed=seed)
-    rng = np.random.default_rng(seed + 5)
-    X, y = [], []
-    modes = ["standard", "zero_day", "spoof", "wear", "insider"]
-    for ep in range(episodes):
-        tw = LiveTwin(ward, seed=seed + ep)
-        for _ in range(90):
-            tw.step()
-        wd.reset_state()
-        adv = Adversary(ward, threat, seed=seed + 100 + ep)
-        attack = ep % 3 != 0  # one third pure normal
-        mode = modes[(ep // 3) % len(modes)] if attack else "none"
-        camp = adv.launch(tw.minute, mode=mode, stealth=float(rng.uniform(1.5, 8.0)), goal=str(rng.choice([c for c in adv.goals]))) if attack else None
-        started_phys = False
-        for k in range(260):
-            minute = tw.minute
-            flows, phys, evs = adv.tick(minute) if attack else ([], [], [])
-            for ph in phys:
-                if ph["kind"] == "wear":
-                    tw.breaker_cycle()
-                    continue
-                tw.act(ph["kind"], ph["target"], ph["dur_min"])
-                started_phys = True
-                if mode == "spoof":
-                    tag = {"pump_off": f"{ph['target']}_", }.get(ph["kind"])
-                    if ph["kind"] == "pump_off":
-                        p = ph["target"]
-                        tw.spoof[f"{p}_state"] = 1.0
-                        tw.spoof[f"{p}_flow"] = lambda rep: 0.21
-                    elif ph["kind"] == "breaker_open":
-                        tw.spoof[f"CB_{ph['target']}"] = 1.0
-                if ph["kind"] in ("valve_close", "breaker_open", "hospital_isolate") and mode != "spoof":
-                    pass
-            tele = tw.step()
-            counts = tr.normal()
-            decoy = tr.add(counts, flows)
-            res = wd.observe(counts, tele, minute, decoy)
-            label = 1 if (attack and (adv.active() or (started_phys and any(v > tw.minute for v in list(tw.forced_off.values()) + list(tw.breaker_open.values()) + list(tw.valve_closed.values()))))) else 0
-            if k > 5:
-                X.append(res["features"]); y.append(label)
-    X, y = np.array(X), np.array(y)
-    wd.fit_fusion(X, y)
-    wd.reset_state()
-    return wd, tr, (X, y)

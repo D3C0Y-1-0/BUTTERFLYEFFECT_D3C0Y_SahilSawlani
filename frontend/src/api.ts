@@ -43,6 +43,7 @@ export async function boot() {
   setState({ st, geo, booting: false });
   connect(); pollAnalytics();
   api("/api/experiments").then((exp) => setState({ exp })).catch(() => {});
+  api("/api/v2/forecast?top=6").catch(() => {});   // warm the forecast on the server so the Predict page opens instantly
 }
 
 function connect() {
@@ -53,7 +54,7 @@ function connect() {
   const flush = () => {   // the server may send 8 frames a second; the interface updates 3 times a second, which keeps it light
     timer = null; if (!pending) return; const snap = pending; pending = null;
     const s = getState(); const hist = s.hist.length > 360 ? s.hist.slice(-300) : s.hist; const last = hist[hist.length - 1];
-    const item = { t: snap.t, p: snap.watch.shown ?? snap.watch.p, live: snap.services.served_frac, none: snap.compare.none_served, iso: snap.compare.iso_served };
+    const item = { t: snap.t, cs: snap.watch.cusum ?? 0, line: snap.watch.cusum_line || 1, raw: snap.watch.p, p: snap.watch.shown ?? snap.watch.p, live: snap.services.served_frac, none: snap.compare.none_served, iso: snap.compare.iso_served };
     setState({ snap, hist: last && last.t === snap.t ? hist : [...hist, item] });
   };
   ws.onopen = () => { retry = 0; setState({ connected: true }); };
