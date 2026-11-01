@@ -1,1 +1,1 @@
-{"version": "lab-1.1", "top5_overlap_heldout": 0.738, "rows": 7020, "train_rows": 5616, "test_rows": 1404, "mae_heldout": 0.0134, "spearman_heldout": 0.911, "mean_label": 0.0708, "seed": 11, "trained_unix": 1793506914}
+{"version": "lab-1.1", "top5_overlap_heldout": 0.738, "rows": 7020, "train_rows": 5616, "test_rows": 1404, "mae_heldout": 0.0134, "spearman_heldout": 0.911, "mean_label": 0.0708, "seed": 11, "trained_unix": 1793517944}

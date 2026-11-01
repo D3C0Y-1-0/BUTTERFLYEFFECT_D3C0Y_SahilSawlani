@@ -17,7 +17,8 @@ from .assumptions import A
 from .twin import LiveTwin
 
 
-CS_K_SD, CS_H_MUL, CS_H_ADD = 1.0, 1.6, 2.0
+import os
+CS_K_SD, CS_H_MUL, CS_H_ADD = float(os.environ.get("ATHENA_CS_K", 1.0)), float(os.environ.get("ATHENA_CS_MUL", 1.6)), float(os.environ.get("ATHENA_CS_ADD", 2.0))
 
 
 class Traffic:
@@ -87,6 +88,8 @@ class Watchdog:
         self.ae.fit(X, X)
         err = ((X - self.ae.predict(X)) ** 2).mean(axis=1)
         self.thr = float(np.quantile(err, 0.995)) * 1.6 + 1e-6
+        zs0 = np.array([np.maximum((c - traffic.lam) / np.sqrt(traffic.lam + 0.3 + (0.15 * traffic.lam) ** 2) - 1.0, 0.0).sum() for c in (traffic.normal() for _ in range(600))])
+        self.zs_mu, self.zs_sd = float(zs0.mean()), float(zs0.std() + 1e-6)         # what "a normal minute" looks like for the sum of small oddities
         self.sigma_tank = 0.03
         self.reset_state()
         self.fusion = None
@@ -220,12 +223,15 @@ class Watchdog:
             if zv[i] > 5 or (mu[i] < 0.02 and counts[i] >= 2):
                 e = self.ward["edges"][int(i % self.E)]
                 ev.append(dict(edge=e["id"], src=e["source"], dst=e["target"], z=round(float(zv[i]), 1), kind="write" if i >= self.E else "read"))
-        return dict(ae=err / self.thr, zmax=zmax, novelty=novelty, evidence=ev)
+        # SUM OF SMALL ODDITIES: many flows each only slightly above normal (several quiet attackers at once) add up even though none reaches the single-flow line.
+        zs = float(np.maximum(zv - 1.0, 0.0).sum())
+        zsum = float(np.clip((zs - getattr(self, "zs_mu", 4.5)) / getattr(self, "zs_sd", 2.5), -3.0, 30.0))
+        return dict(ae=err / self.thr, zmax=zmax, novelty=novelty, evidence=ev, zsum=zsum)
 
     # ---------------------------------------------------------------- fusion
     @staticmethod
     def feat(net, phys_z, decoy):
-        return np.array([min(net["ae"], 50) / 10.0, np.log1p(max(net["zmax"], 0)), min(net["novelty"], 10), phys_z / 10.0, 1.0 if decoy else 0.0])
+        return np.array([min(net["ae"], 50) / 10.0, np.log1p(max(net["zmax"], 0)), min(net["novelty"], 10), phys_z / 10.0, 1.0 if decoy else 0.0, net.get("zsum", 0.0) / 10.0])
 
     def fit_fusion(self, X, y, normal_weight=4.0):
         """Logistic fusion. Normal windows are weighted so a calm city sits near p~0.05 (flat heartbeat); strong evidence still saturates."""

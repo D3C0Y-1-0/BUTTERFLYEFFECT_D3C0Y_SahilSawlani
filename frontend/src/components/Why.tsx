@@ -72,6 +72,23 @@ export function WhyView() {
       </div>
       <div className="tip" style={{ textAlign: "center" }}><Ic n="check" /> Re-run any number: <b>python backend/experiments.py</b> writes <b>data/experiments.json</b> (last run {E._meta?.generated || "–"}).</div>
 
+      {last17 && (() => { const e21 = E.E21?.result; const e22 = E.E22?.result?.regimes?.["with traffic-level correction"]; const e23 = E.E23?.result?.runs; const fa = e22 ? Object.values<any>(e22).reduce((x: number, v: any) => x + v.false_incidents, 0) : null; const si = e23?.["independent meters on a separate path"], sn = e23?.["control network only"];
+        return <Box id="why_score" title="Scorecard: ATHENA against doing nothing" icon="sparkle" value={`${last17.batch} attacks tested`} defaultOpen>
+          <div className="score-hero">
+            <div className="sh"><b>{last17.loss_cut_pct}%</b><span>of service loss avoided</span><small>{k(last17.loss_none)} lost with no response, {k(last17.loss_iso)} if everything is cut, {k(last17.loss_decoy)} with ATHENA</small></div>
+            <div className="sh"><b>{last17.intruders_detected_pct ?? "–"}%</b><span>of intruders caught</span><small>95% sure at least {last17.intruders_detected_low95 ?? "–"}%</small></div>
+            <div className="sh"><b>{last17.stopped_before_damage_pct}%</b><span>of damaging attacks stopped before equipment was touched</span><small>95% sure at least {last17.stopped_before_damage_low95}%</small></div>
+            <div className="sh"><b>{last17.median_detect_minutes} min</b><span>median time to alarm</span><small>vs about 312 days for an unnoticed intruder in the wild (Bilge and Dumitras)</small></div>
+          </div>
+          <div className="score-row">
+            {fa !== null && <div><b>{fa}</b><span>false alarms in 12 calm days, even with swinging and bursty traffic</span></div>}
+            {e21 && <div><b>{e21.top10_hit_pct}%</b><span>of attacks had a forecast top-10 device taken</span></div>}
+            {si && <div><b>{si.median_minutes_to_alarm} min</b><span>to catch a careful forger with independent meters ({sn?.median_minutes_to_alarm} without)</span></div>}
+            <div><b>0</b><span>cuts to hospital systems without proof or a person</span></div>
+          </div>
+          <div className="tip">Measured on {last17.batch} simulated attacks, every type in equal share, with a simulated on-call operator. Weakest spots, shown not hidden: {Math.round(100 - last17.stopped_before_damage_pct)}% of damaging attacks still reach equipment; results are from our own simulator, not real incidents.</div>
+        </Box>; })()}
+
       <Box id="why_fit" title="Government compliance and integration" icon="lock" value="India" defaultOpen>
         <div className="tablewrap"><table><thead><tr><th>Rule or standard</th><th>What it asks</th><th>What ATHENA does</th><th>Status</th></tr></thead><tbody>
           <tr><td><b>CERT-In Directions (28 Apr 2022)</b></td><td>Report an incident within 6 hours</td><td>A 6-hour clock starts at the alarm; one click exports the report{comp ? ` (${comp.clocks.length} clock${comp.clocks.length === 1 ? "" : "s"} now)` : ""}</td><td><span className="pill safe">Built</span></td></tr>

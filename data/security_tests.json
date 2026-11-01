@@ -211,70 +211,57 @@
    "detail": ""
   }
  ],
- "summary": "42/42 automated security tests passed \u00b7 bandit: 1 high / 1 medium / 5 low \u00b7 pip-audit: 1 packages with known CVEs",
+ "summary": "42/42 automated security tests passed \u00b7 bandit: 0 high / 0 medium / 5 low \u00b7 pip-audit: 2 packages with known CVEs",
  "extra": {
   "bandit": {
-   "HIGH": 1,
-   "MEDIUM": 1,
+   "HIGH": 0,
+   "MEDIUM": 0,
    "LOW": 5,
    "issues": [
     {
      "test": "B403",
      "sev": "LOW",
      "file": "lab_service.py",
-     "line": 8,
+     "line": 9,
      "text": "Consider possible security implications associated with pickle module."
     },
     {
      "test": "B110",
      "sev": "LOW",
      "file": "lab_service.py",
-     "line": 57,
-     "text": "Try, Except, Pass detected."
-    },
-    {
-     "test": "B324",
-     "sev": "HIGH",
-     "file": "lab_service.py",
-     "line": 96,
-     "text": "Use of weak MD5 hash for security. Consider usedforsecurity=False"
-    },
-    {
-     "test": "B301",
-     "sev": "MEDIUM",
-     "file": "lab_service.py",
-     "line": 109,
-     "text": "Pickle and modules that wrap it can be unsafe when used to deserialize untrusted data, pos"
-    },
-    {
-     "test": "B110",
-     "sev": "LOW",
-     "file": "lab_service.py",
-     "line": 134,
+     "line": 59,
      "text": "Try, Except, Pass detected."
     },
     {
      "test": "B110",
      "sev": "LOW",
      "file": "lab_service.py",
-     "line": 148,
+     "line": 138,
+     "text": "Try, Except, Pass detected."
+    },
+    {
+     "test": "B110",
+     "sev": "LOW",
+     "file": "lab_service.py",
+     "line": 152,
      "text": "Try, Except, Pass detected."
     },
     {
      "test": "B110",
      "sev": "LOW",
      "file": "runtime.py",
-     "line": 164,
+     "line": 170,
      "text": "Try, Except, Pass detected."
     }
    ]
   },
   "pip_audit": {
-   "packages_with_known_vulns": 1,
+   "packages_with_known_vulns": 2,
    "names": [
+    "scapy",
     "setuptools"
    ]
   }
  },
- "generated": "2026-11-01 08:23:39"
+ "generated": "2026-11-01 12:59:29"
 }

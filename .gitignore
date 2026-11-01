@@ -23,3 +23,5 @@ data/ppo_train_v*.json
 data/ppo_eval_v*.json
 data/lab_model_cache.pkl
 data/blackbox/
+livedemo/evidence/
+livedemo/attacker_log.jsonl

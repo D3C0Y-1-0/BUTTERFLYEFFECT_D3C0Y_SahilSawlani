@@ -213,6 +213,18 @@ def tamper(u=Depends(user_for("tamper"))):
     return state["rt"].bb.tamper_demo()
 
 
+@app.get("/api/export/incidents")
+def export_incidents(fmt: Literal["cef", "json"] = "cef", u=Depends(user_for("report"))):
+    """Incidents for the SOC: CEF lines for the SIEM, or JSON tickets for the ticket queue."""
+    from . import soc
+    rt = state["rt"]
+    with rt.lock:
+        incs, assets = list(rt.incidents), rt.ward["assets"]
+        rows = [soc.to_cef(i, assets) for i in incs] if fmt == "cef" else [soc.to_ticket(i, assets) for i in incs]
+    rt.bb.append("soc_export", dict(fmt=fmt, n=len(rows)), actor=u["sub"])
+    return dict(format=fmt, count=len(rows), items=rows)
+
+
 @app.get("/api/security")
 def security(u=Depends(user_for("security"))):
     rt, rl = state["rt"], state["rl"]

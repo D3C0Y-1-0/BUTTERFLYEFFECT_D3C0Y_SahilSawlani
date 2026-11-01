@@ -108,6 +108,7 @@ def test_log_memory_window_is_capped_and_verify_is_incremental():
 
 # ------------------------------------------------------------------ flaw 4: a coherent telemetry spoof needs an independent path to be seen early
 def _first_physics_alarm(rt, use_independent, seed=41):
+    keep, rt.posture_nodes = rt.posture_nodes, []          # this test is about DETECTION, so the attack must be allowed to land (standing hardening would stop it)
     rt.reset(seed)
     rt.autonomy, rt.autopilot = "suggest", False
     rt.watchdog.use_independent = use_independent
@@ -116,7 +117,9 @@ def _first_physics_alarm(rt, use_independent, seed=41):
     for _ in range(14 * 60):
         rt.tick()
         if any(i["physics"] for i in rt.incidents):
+            rt.posture_nodes = keep
             return rt.live.minute - t0
+    rt.posture_nodes = keep
     return None
 
 
@@ -149,3 +152,14 @@ def test_lone_decoy_touch_waits_for_a_person(rt):
 def test_decoy_probabilities_live_with_the_other_assumptions():
     from decoy.assumptions import ASSUMPTIONS
     assert {"decoy_lure_p", "decoy_trap_p", "decoy_alarm_p"} <= set(ASSUMPTIONS)
+
+
+# ------------------------------------------------------------------ SOC export
+def test_soc_export_formats():
+    from decoy import soc
+    inc = dict(id="INC-001", clock0="Day 1 10:00", status="open", p_max=0.97, evidence_nodes=["VPN_VENDOR"], actions=[dict(minute=5, actor="athena", label="Isolate a | device")], stages=[dict(stage="Detected")])
+    assets = {"VPN_VENDOR": dict(name="Vendor VPN", zone="Z-DMZ")}
+    line = soc.to_cef(inc, assets)
+    assert line.startswith("CEF:0|ATHENA|") and "Vendor VPN" in line and line.count("|") == 7
+    t = soc.to_ticket(inc, assets)
+    assert t["priority"] == "P1" and t["devices"][0]["name"] == "Vendor VPN" and t["actions_taken"][0]["by"] == "athena"

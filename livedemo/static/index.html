@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ATHENA Live</title>
+<style>
+:root{--bg:#10181c;--card:#18242a;--ink:#e8f1f2;--dim:#8aa0a6;--ok:#3ecf8e;--warn:#f5b041;--bad:#ff5a5f;--line:#27363d}
+@media (prefers-color-scheme:light){:root{--bg:#f4f1ea;--card:#fff;--ink:#1c2a2e;--dim:#667b80;--line:#ddd6c8}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,sans-serif;padding:16px}
+h1{font-size:15px;margin:0;color:var(--dim);font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.banner{margin:10px 0;border-radius:14px;padding:16px 18px;background:var(--card);border:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center}
+.banner b{font-size:26px}.s-learning b{color:var(--warn)}.s-watching b,.s-verified b{color:var(--ok)}.s-detected b,.s-rate_limit b,.s-blocked b,.s-needs_person b{color:var(--bad)}
+.grid{display:grid;grid-template-columns:2fr 1fr;gap:12px}@media(max-width:900px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}.card h2{font-size:12px;margin:0 0 8px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+canvas{width:100%;height:170px;display:block}
+table{width:100%;border-collapse:collapse;font-size:12.5px}td{padding:4px 6px;border-top:1px solid var(--line);vertical-align:top}td.t{color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums}
+.tag{display:inline-block;padding:1px 7px;border-radius:99px;font-size:11px;font-weight:700;background:var(--line)}.DETECTED,.ESCALATE,.VERIFY_FAILED{background:var(--bad);color:#fff}.ACTION{background:var(--warn);color:#1c1c1c}.VERIFIED,.BASELINE_LEARNED{background:var(--ok);color:#06251a}
+.filter{font:12.5px ui-monospace,Consolas,monospace;background:var(--bg);border:1px dashed var(--dim);border-radius:8px;padding:8px;word-break:break-all;cursor:pointer}
+button{background:var(--line);color:var(--ink);border:0;border-radius:8px;padding:6px 10px;cursor:pointer;font-weight:600}.dim{color:var(--dim);font-size:12px}
+.bar{height:8px;border-radius:5px;background:var(--line);overflow:hidden}.bar i{display:block;height:100%;background:var(--warn)}
+</style></head><body>
+<h1>ATHENA live defence · this laptop only · no link to the attacker</h1>
+<div id="banner" class="banner"><div><b id="stage">…</b><div class="dim" id="sub"></div></div><div class="dim" id="meta"></div></div>
+<div id="learn" class="card" style="display:none"><h2>Learning what is normal here</h2><div class="bar"><i id="lbar" style="width:0"></i></div><div class="dim">Use this laptop normally (browse, stream). Nothing is assumed about any attack.</div></div>
+<div class="grid" style="margin-top:12px">
+<div><div class="card"><h2>Unsolicited packets per second reaching this laptop</h2><canvas id="c1" width="900" height="170"></canvas>
+<div class="dim"><span style="color:var(--bad)">■</span> packets from the suspected source &nbsp; <span style="color:var(--warn)">■</span> all unsolicited &nbsp; <span style="color:var(--ok)">■</span> detector confidence &nbsp; <span style="color:#7aa2ff">■</span> replies this laptop sends the source</div></div>
+<div class="card" style="margin-top:12px"><h2>What ATHENA decided (each line is also a real packet in Wireshark)</h2><table id="ev"></table></div></div>
+<div><div class="card"><h2>Wireshark: paste this display filter</h2><div class="filter" id="filter" title="click to copy"></div>
+<div class="dim" style="margin-top:6px">Capture on Wi-Fi <b>and</b> Npcap Loopback Adapter. ATHENA events appear as protocol ATHENA on UDP 47474.</div></div>
+<div class="card" style="margin-top:12px"><h2>Active responses</h2><div id="rules" class="dim">none</div></div>
+<div class="card" style="margin-top:12px"><h2>Detector</h2><div id="calib" class="dim"></div><div style="margin-top:8px"><button onclick="fetch('/api/reset',{method:'POST'})">Reset / remove all rules</button></div></div></div></div>
+<script>
+const $=id=>document.getElementById(id);let last=null;
+$('filter').onclick=()=>navigator.clipboard&&navigator.clipboard.writeText($('filter').textContent);
+const SUB={learning:'Watching traffic to learn what is normal.',watching:'Normal. Nothing unusual reaching this laptop.',detected:'Unusual traffic found.',rate_limit:'Rate-limiting the source to protect the service.',blocked:'Source cut off at the firewall. Checking that it worked.',verified:'Contained and checked.',needs_person:'ATHENA will not act on this alone: a person must decide.'};
+function draw(s){const c=$('c1'),g=c.getContext('2d'),W=c.width,H=c.height;g.clearRect(0,0,W,H);const d=s.series;if(d.length<2)return;
+const mx=Math.max(10,...d.map(x=>x.total),...d.map(x=>x.att));const line=(f,col,sc)=>{g.beginPath();g.strokeStyle=col;g.lineWidth=2;d.forEach((x,i)=>{const X=i/(d.length-1)*W,Y=H-6-(f(x)/sc)*(H-16);i?g.lineTo(X,Y):g.moveTo(X,Y)});g.stroke()};
+line(x=>x.total,'#f5b041',mx);line(x=>x.att,'#ff5a5f',mx);line(x=>x.replies,'#7aa2ff',mx);line(x=>x.p,'#3ecf8e',1);g.fillStyle='#8aa0a6';g.font='11px sans-serif';g.fillText(mx+' pkts/s',4,12)}
+async function tick(){try{const s=await (await fetch('/api/state')).json();$('banner').className='banner s-'+s.stage;$('stage').textContent=s.stage.replace('_',' ').toUpperCase();
+$('sub').textContent=SUB[s.stage]||'';$('meta').innerHTML='this laptop '+s.local_ips.join(', ')+'<br>'+(s.admin||s.dry_run?'':'<b style="color:var(--bad)">not administrator: capture/firewall will fail</b>')+(s.dry_run?'dry run (no firewall changes)':'');
+$('learn').style.display=s.ready?'none':'block';$('lbar').style.width=(s.progress*100)+'%';$('filter').textContent=s.wireshark_filter;
+$('ev').innerHTML=s.events.slice().reverse().map(e=>`<tr><td class="t">${e.iso}</td><td><span class="tag ${e.stage}">${e.stage}</span></td><td>${e.text.replace('ATHENA '+e.stage,'').trim()}</td></tr>`).join('');
+$('rules').innerHTML=(s.rules.length?s.rules.map(r=>`Firewall block on ${r.ip} since ${r.since} <button onclick="fetch('/api/undo/${r.ip}',{method:'POST'})">Undo</button>`).join('<br>'):'')+(Object.keys(s.limits).length?'<br>Rate limit: '+Object.entries(s.limits).map(([k,v])=>k+' '+v+'/s (served '+(s.served[k]||0)+', dropped '+(s.dropped[k]||0)+')').join(', '):'')||'none';
+$('calib').innerHTML=s.calib?`learned from ${s.calib.normal_windows} s of this laptop's traffic<br>known flows ${s.calib.known_flows}, highest calm confidence ${s.calib.normal_max_p}`:'not ready';draw(s)}catch(e){}}
+setInterval(tick,700);tick();
+</script></body></html>

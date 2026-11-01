@@ -7,6 +7,8 @@ iso twin   : same attack, but the whole network is isolated when the incident is
 from __future__ import annotations
 
 import json
+import os
+import zlib
 import math
 import threading
 import time
@@ -24,6 +26,7 @@ from .physics import Physics
 from .planner import Planner
 from .threat import Defence, ThreatModel
 from .twin import LiveTwin
+from . import posture
 from .training import build_watchdog
 from .environment import Environment
 from .rl import DECISION_MIN, PPO, RLCore, ZDState
@@ -57,7 +60,9 @@ class Runtime:
         self.lock = threading.RLock()
         self.ex_healer = ThreadPoolExecutor(1)
         self.ex_analytics = ThreadPoolExecutor(1)
-        self.autonomy = "auto_low"
+        self.posture_nodes = posture.choose(self.ward, self.T) if os.environ.get("ATHENA_POSTURE", "1") != "0" else []
+        self.sim_operator = None     # experiments only: a simulated on-call operator, e.g. dict(min_delay=5, max_delay=20, availability=0.9). Live runs have a real person instead.
+        self.autonomy = os.environ.get("ATHENA_AUTONOMY", "auto_low") if os.environ.get("ATHENA_AUTONOMY") in ("observe", "suggest", "auto_low", "auto_all") else "auto_low"   # a utility should start at "suggest"; the demo starts at auto_low
         self.autopilot = True
         self.stopped = False
         self.paused = False
@@ -94,6 +99,7 @@ class Runtime:
             for tw in (self.live, self.none, self.iso):
                 tw.lost = dict(hh_h=0.0, hosp_h=0.0, mwh=0.0)
             self.defence = Defence()
+            posture.apply_to(self.defence, self.ward, self.posture_nodes)      # standing hardening chosen from the forecast, before any attack
             self.decoys = {}
             # ATTACKER SIDE (three copies of the same attack, for the scoreboard) and ENVIRONMENT. The defence code below never reads self.adv*.
             self.adv = Adversary(self.ward, seed + 3)
@@ -322,6 +328,7 @@ class Runtime:
         self._flood_note(m)
         self._scorekeeper(m)
         self._escalate(m)
+        self._operator_tick(m)
         self._rl_tick(m)
         # verification of applied containment
         if self.pending_verify and m >= self.pending_verify["minute"]:
@@ -440,6 +447,23 @@ class Runtime:
                 if self.lo >= 30:
                     self._resolve(open_inc, m)
 
+    def _operator_tick(self, m):
+        """Stand-in for the on-call person when measuring the system without one in the loop: each pending plan is answered after a delay (5-20 min), but only 90% of the time
+        anyone answers at all (3 a.m., phone off). The rest stay pending, exactly as they would in life."""
+        op = self.sim_operator
+        if not op:
+            return
+        for prop in self.proposals:
+            if prop["status"] != "pending":
+                continue
+            h = (zlib.crc32(f"{prop['id']}|{self.seed}|{prop['minute']}".encode()) & 0xFFFF) / 65535.0
+            if h > op["availability"]:
+                continue
+            delay = op["min_delay"] + (op["max_delay"] - op["min_delay"]) * ((h / max(op["availability"], 1e-9)) % 1.0)
+            if m - prop["minute"] >= delay:
+                self.note("operator_answer", "info", f"On-call operator approved {prop['id']} after {int(m - prop['minute'])} min.", proposal=prop["id"])
+                self.approve(prop["id"], actor="operator (simulated)", _locked=True)
+
     def _escalate(self, m):
         """A safety-checked plan must not wait forever: if nobody answers while service is at risk, autonomy applies it (humans can still freeze autonomy)."""
         if self.autonomy not in ("auto_low", "auto_all"):
@@ -555,11 +579,21 @@ class Runtime:
         elif self.autonomy == "auto_low":
             auto = all(s["service"] == 0 and s["ops"] <= 800 and s["kind"] in ("virtual_patch", "close_link", "rotate_creds", "decoy", "quarantine", "manual_restore") for s in steps)
         if auto:
-            why = self._auto_guard(inc, steps)
-            if why:
+            go, wait = self._guard_steps(inc, [dict(kind=x["kind"], service=x["service"], target=x["target"], i=i) for i, x in enumerate(steps)])
+            if wait:
+                prop["held"] = wait[0][1]
+                self.note("auto_held", "warn", f"Proposal {pid}: {len(go)} safe step(s) run now; {len(wait)} wait for a person: {wait[0][1]}", proposal=pid, incident=inc["id"])
+                if go:
+                    gi = {x["i"] for x in go}
+                    for i in sorted(gi):
+                        self._apply_step(prop["raw_steps"][i], inc, "autonomy:" + self.autonomy)
+                    self.auto_log.extend([self.live.minute] * len(gi))
+                    prop["raw_steps"] = [r for i, r in enumerate(prop["raw_steps"]) if i not in gi]
+                    prop["steps"] = [x for i, x in enumerate(prop["steps"]) if i not in gi]
+                    inc["stages"].append(dict(stage="Cut made", minute=self.live.minute))
+                    self.pending_verify = dict(minute=self.live.minute + 20, start=self.live.minute, inc=inc["id"], pid=pid)
+                    self.dirty = True
                 auto = False
-                prop["held"] = why
-                self.note("auto_held", "warn", f"Proposal {pid} was NOT applied automatically: {why}", proposal=pid, incident=inc["id"])
         if auto:
             self.auto_log.extend([self.live.minute] * len(steps))
             self.approve(pid, actor="autonomy:" + self.autonomy, _locked=True)
@@ -580,44 +614,51 @@ class Runtime:
     AUTO_MAX, AUTO_WINDOW = 4, 120        # at most this many automatic steps in this many simulated minutes
 
     def _sensitive_nodes(self):
-        """Devices a wrong cut could hurt patients through: anything the hospital depends on, and anything directly connected to it."""
+        """Devices a wrong cut could hurt patients through: the systems the hospital itself depends on (building management, its water controller). A vendor VPN next to them is
+        important but cutting it does not stop a ward."""
         if getattr(self, "_sens", None) is None:
-            core = {k for k, a in self.ward["assets"].items() if a.get("hospital_dependent")}
-            near = set(core)
-            for e in self.ward["edges"]:
-                if e["source"] in core:
-                    near.add(e["target"])
-                if e["target"] in core:
-                    near.add(e["source"])
-            self._sens = near
+            self._sens = {k for k, a in self.ward["assets"].items() if a.get("hospital_dependent")}
         return self._sens
 
-    def _auto_guard(self, inc, steps):
-        """Reasons an automatic action must wait for a person. Forged network traffic alone must never be able to switch off a hospital-adjacent system (an attacker could use
-        ATHENA to cause the outage), and a burst of automatic cuts is slowed down so a flood of fake alarms cannot make ATHENA cut a whole network by itself."""
+    def _step_hold(self, inc, st, corroborated):
+        """Why one step must wait for a person (None = it may run by itself)."""
+        if not (st["kind"] in self.DISRUPTIVE or st.get("service")):
+            return None
+        if inc.get("decoy_only"):
+            return "only a decoy was touched and nothing else looks odd: this could be an authorised scanner, so a person must confirm before anything is cut"
+        t = st["target"]
+        touched = set(t.get("nodes") or []) | ({t["node"]} if t.get("node") else set())
+        if t.get("edge") and t["edge"] in self.edge_index:
+            e = self.ward["edges"][self.edge_index[t["edge"]]]
+            touched |= {e["source"], e["target"]}
+        hit = sorted(touched & self._sensitive_nodes())
+        if hit and not corroborated:
+            names = ", ".join(self.ward["assets"][n]["name"] for n in hit[:2])
+            return f"it would cut hospital equipment ({names}) on network evidence alone; no physical reading or second device backs it up, so a person must confirm"
+        return None
+
+    def _guard_steps(self, inc, steps):
+        """Split a plan: steps that may run now, and (step, reason) for the ones that must wait. Forged network traffic alone must never be able to switch off a hospital system, and
+        a burst of automatic cuts is slowed so a flood of fake alarms cannot make ATHENA cut a whole network. The safe steps are NOT held back by the risky one."""
         m = self.live.minute
         while self.auto_log and m - self.auto_log[0] > self.AUTO_WINDOW:
             self.auto_log.popleft()
-        if len(self.auto_log) + len(steps) > self.AUTO_MAX:
-            return f"rate limit: {len(self.auto_log)} automatic steps already ran in the last {self.AUTO_WINDOW} minutes (limit {self.AUTO_MAX}); a person must approve more"
-        if inc.get("decoy_only") and any(s["kind"] in self.DISRUPTIVE or s.get("service") for s in steps):
-            return "only a decoy was touched and nothing else looks odd: this could be an authorised scanner, so a person must confirm before anything is cut"
-        sens = self._sensitive_nodes()
         corroborated = bool(inc.get("physics")) or len([n for n in inc["evidence_nodes"] if n != "INTERNET"]) >= 3
-        for s in steps:
-            if s["kind"] not in self.DISRUPTIVE and not s.get("service"):
-                continue
-            t = s["target"]
-            touched = set(t.get("nodes") or []) | ({t["node"]} if t.get("node") else set())
-            if t.get("edge"):
-                e = self.ward["edges"][self.edge_index[t["edge"]]] if t["edge"] in self.edge_index else None
-                if e:
-                    touched |= {e["source"], e["target"]}
-            hit = sorted(touched & sens)
-            if hit and not corroborated:
-                names = ", ".join(self.ward["assets"][n]["name"] for n in hit[:2])
-                return f"it would cut hospital-adjacent equipment ({names}) on network evidence alone; no physical reading or second device backs it up, so a person must confirm"
-        return None
+        go, wait, used = [], [], len(self.auto_log)
+        for st in steps:
+            why = self._step_hold(inc, st, corroborated)
+            if why is None and used >= self.AUTO_MAX:
+                why = f"rate limit: {used} automatic steps already ran in the last {self.AUTO_WINDOW} minutes (limit {self.AUTO_MAX}); a person must approve more"
+            if why is None:
+                go.append(st); used += 1
+            else:
+                wait.append((st, why))
+        return go, wait
+
+    def _auto_guard(self, inc, steps):
+        """First reason any step must wait, or None (kept for callers that only need yes/no)."""
+        go, wait = self._guard_steps(inc, steps)
+        return wait[0][1] if wait else None
 
     def approve(self, pid, actor="operator", _locked=False):
         def run():

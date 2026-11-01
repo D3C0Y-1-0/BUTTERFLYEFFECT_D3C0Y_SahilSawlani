@@ -628,6 +628,7 @@ def e23(ctx):
     rt = ctx.get("rt") or Runtime(sync=True, n_samples=2000, verbose=False)
     ctx["rt"] = rt
     rt.autonomy, rt.autopilot = "suggest", False
+    keep_posture, rt.posture_nodes = rt.posture_nodes, []      # measures DETECTION of a forger who got through, so standing hardening is off here
     res = {}
     for label, ind in (("independent meters on a separate path", True), ("control network only", False)):
         times, lost = [], []
@@ -642,6 +643,7 @@ def e23(ctx):
         seen = [t for t in times if t is not None]
         res[label] = dict(attacks_that_reached_the_pump=len(times), alarmed=len(seen), median_minutes_to_alarm=float(np.median(seen)) if seen else None, never_alarmed=len(times) - len(seen), mean_household_hours_lost=round(float(np.mean(lost))))
     rt.watchdog.use_independent = True
+    rt.posture_nodes = keep_posture
     a, b = res["independent meters on a separate path"], res["control network only"]
     return {"E23": dict(claim="A coherent telemetry spoof is only caught early when a second, independent sensing path exists", target="alarm within 2 h with the independent path", result=dict(runs=res, note="Detection only; no response was applied, so the loss is what an unanswered attack does. Requires real independent meters (the hospital's own, or a separate utility feed); this is an assumption to be validated on site."), met=bool(a["median_minutes_to_alarm"] is not None and a["median_minutes_to_alarm"] <= 120))}
 

@@ -12,8 +12,8 @@ const hash = (s: string) => { let h = 2166136261; for (let i = 0; i < s.length; 
 const short = (n: string) => n.replace(/ \(.*\)/, "").slice(0, 26);
 
 /** One colour per layer so the stack reads at a glance (legend in the map). */
-export const LAYER_COL: Record<string, number> = { internet: 0x2B2B3A, iot: 0x1FA2A6, it: 0x7B61FF, dmz: 0xF2A52B, control: 0x2E6BE6, field: 0xD46743 };
-export const SECTOR_COL: Record<string, number> = { nuclear: 0xC2185B, it_hub: 0x7B61FF, factory: 0x6D4C41, hospital: 0x2F7A84, tourist: 0xF08A24, transport: 0x3949AB };
+export const LAYER_COL: Record<string, number> = { internet: 0x14141F, iot: 0x00868C, it: 0x4524D6, dmz: 0xE06E00, control: 0x0C42C2, field: 0xC1380F };
+export const SECTOR_COL: Record<string, number> = { nuclear: 0xA00F45, it_hub: 0x5238E0, factory: 0x4E342E, hospital: 0x1B5C66, tourist: 0xD46A0C, transport: 0x25318F };
 const HOT = 0xE11D48;   // the attacker's colour: crimson stands out on green land, cream roads and aqua buildings
 
 /** Pictograms drawn on a canvas: a white glyph on a coloured disc, so each device type is recognisable without reading. */
@@ -47,8 +47,10 @@ const iconTex = new Map<string, THREE.CanvasTexture>();
 function iconSprite(glyph: string, fill: string, size = 9, ring = "#fff") {
   const key = glyph + fill + ring; let tex = iconTex.get(key);
   if (!tex) {
-    const c = document.createElement("canvas"); c.width = c.height = 64; const g = c.getContext("2d")!;
-    g.fillStyle = ring; g.beginPath(); g.arc(32, 32, 31, 0, 7); g.fill(); g.fillStyle = fill; g.beginPath(); g.arc(32, 32, 27, 0, 7); g.fill();
+    const c = document.createElement("canvas"); c.width = c.height = 96; const g = c.getContext("2d")!; g.scale(1.5, 1.5);   // drawn at 1.5x for a crisper icon
+    g.fillStyle = "rgba(15,15,35,.38)"; g.beginPath(); g.arc(32, 33, 31.5, 0, 7); g.fill();                              // soft dark halo so the icon never melts into sand or pastel buildings
+    g.fillStyle = ring; g.beginPath(); g.arc(32, 32, 30.5, 0, 7); g.fill(); g.fillStyle = fill; g.beginPath(); g.arc(32, 32, 25.5, 0, 7); g.fill();
+    g.strokeStyle = "rgba(0,0,0,.28)"; g.lineWidth = 1.6; g.beginPath(); g.arc(32, 32, 25.5, 0, 7); g.stroke();
     g.strokeStyle = "#fff"; g.fillStyle = "#fff"; g.lineWidth = 3.4; g.lineCap = "round"; g.lineJoin = "round"; (GLYPH[glyph] || GLYPH.server)(g);
     tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; iconTex.set(key, tex);
   }
@@ -224,16 +226,23 @@ export class CityScene {
   coastX(z: number) { return -222 + 16 * Math.sin(z / 58) + 9 * Math.sin(z / 21 + 1) - Math.max(0, Math.abs(z) - 330) * 0.12; }
 
   buildGround() {
-    const sea = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), new THREE.MeshStandardMaterial({ color: 0x4EA3D6, roughness: 0.32, metalness: 0.06, envMapIntensity: 0.9 })); sea.rotation.x = -Math.PI / 2; sea.position.set(100, -0.6, 0); sea.receiveShadow = true; this.root.add(sea);
+    const sea = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), new THREE.MeshStandardMaterial({ color: 0x3DB0D6, roughness: 0.32, metalness: 0.06, envMapIntensity: 0.9 })); sea.rotation.x = -Math.PI / 2; sea.position.set(100, -0.6, 0); sea.receiveShadow = true; this.root.add(sea);
     const pts: THREE.Vector2[] = []; for (let z = -1100; z <= 1100; z += 14) pts.push(new THREE.Vector2(this.coastX(z), -z));
     const shape = new THREE.Shape([...pts, new THREE.Vector2(1500, -1100), new THREE.Vector2(1500, 1100)].map((v, i, arr) => i === arr.length - 1 ? v : v));
-    const land = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshStandardMaterial({ color: 0xE7DCC2, roughness: 0.95, metalness: 0 })); land.rotation.x = -Math.PI / 2; land.position.y = -0.2; land.receiveShadow = true; this.root.add(land);
+    const land = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshStandardMaterial({ color: 0xD9B873, roughness: 0.95, metalness: 0 })); land.rotation.x = -Math.PI / 2; land.position.y = -0.2; land.receiveShadow = true; this.root.add(land);
+    for (const [wd, off, col, op, y] of [[40, -20, 0x5CCBD8, 0.7, -0.5], [18, -9, 0x9BE6E2, 0.85, -0.45]] as [number, number, number, number, number][]) {   // shallow turquoise water along the shore
+      const sh = new THREE.Mesh(this.ribbon(pts.map((p) => [p.x + off, -p.y]), wd), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op, toneMapped: false })); sh.position.y = y; sh.frustumCulled = false; this.root.add(sh);
+    }
     const beach = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.85, toneMapped: false }));   // a pale surf line along the shore
     beach.geometry = this.ribbon(pts.map((p) => [p.x, -p.y]), 2.2); beach.position.y = -0.1; this.root.add(beach);
     const o = this.st.meta.origin; const cosl = Math.cos((o[0] * Math.PI) / 180); const bb = this.geo?.roads?.bbox || [18.985, 72.828, 19.045, 72.868];
     const x0 = (bb[1] - o[1]) * 111320 * cosl * S, x1 = (bb[3] - o[1]) * 111320 * cosl * S, z0 = -(bb[2] - o[0]) * 110540 * S, z1 = -(bb[0] - o[0]) * 110540 * S;
-    const ward = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0 + 30, z1 - z0 + 30), new THREE.MeshStandardMaterial({ color: 0xF7F3EA, roughness: 1 })); ward.rotation.x = -Math.PI / 2; ward.position.set((x0 + x1) / 2, -0.12, (z0 + z1) / 2); ward.receiveShadow = true; this.root.add(ward);
+    const ward = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0 + 30, z1 - z0 + 30), new THREE.MeshStandardMaterial({ color: 0xE0C486, roughness: 1 })); ward.rotation.x = -Math.PI / 2; ward.position.set((x0 + x1) / 2, -0.12, (z0 + z1) / 2); ward.receiveShadow = true; this.root.add(ward);
     this.wardBox = [x0 - 15, x1 + 15, z0 - 15, z1 + 15];
+    for (let i = 0; i < 14; i++) {   // soft green parks scattered through the ward, under everything else
+      const px = x0 + (x1 - x0) * (0.08 + 0.84 * hash(`pk${i}x`)), pz = z0 + (z1 - z0) * (0.08 + 0.84 * hash(`pk${i}z`)); const r = 9 + 14 * hash(`pk${i}r`);
+      const park = new THREE.Mesh(new THREE.CircleGeometry(r, 28), new THREE.MeshBasicMaterial({ color: 0xBFDDA2, transparent: true, opacity: 0.75, toneMapped: false })); park.rotation.x = -Math.PI / 2; park.scale.set(1, 0.7 + 0.5 * hash(`pk${i}s`), 1); park.position.set(px, -0.08, pz); this.root.add(park);
+    }
     this.buildRoads(); this.buildSurround();
   }
 
@@ -264,7 +273,7 @@ export class CityScene {
     const mat = (c: number, off: number) => new THREE.MeshBasicMaterial({ color: c, polygonOffset: true, polygonOffsetFactor: -off, polygonOffsetUnits: -off, side: THREE.DoubleSide });
     const add = (lines: number[][][], widthOf: (i: number) => number, c: number, off: number, y: number) => { const m = new THREE.Mesh(this.ribbons(lines, widthOf), mat(c, off)); m.position.y = y; m.frustumCulled = false; this.root.add(m); };
     const lines = road.map((r) => r.l); const wd = (i: number) => W[road[i].k] ?? 0.7;
-    add(lines, (i) => wd(i) + 0.45, 0xC9BFA9, 1, 0.02); add(lines, wd, 0xFFFFFF, 2, 0.04);
+    add(lines, (i) => wd(i) + 0.45, 0xD2BC8C, 1, 0.02); add(lines, wd, 0xFFFFFF, 2, 0.04);
     add(rail, () => 1.5, 0x5C6068, 3, 0.06); add(rail, () => 0.55, 0xE9ECEF, 4, 0.08);
     this.railLines = rail;
   }
@@ -273,7 +282,7 @@ export class CityScene {
   /** The land around the ward: low pale blocks on a loose grid, thinning with distance, with main roads out to every Mumbai site. */
   buildSurround() {
     const bx = this.wardBox; const sites = Object.values<any>(this.st.physical).filter((p) => p.kind === "site").map((p) => this.p(p.xz, 0));
-    const cell = 13; const cells: THREE.Matrix4[] = []; const cols: THREE.Color[] = []; const m = new THREE.Matrix4(); const pal = [0xE6A07C, 0xE9B27A, 0xF0C98A, 0xEBB4A4, 0xE2A0A4, 0xF3E2B8, 0xA9D3BC, 0x8FC1E3, 0x6FA6D6, 0xD9BC9C];
+    const cell = 13; const cells: THREE.Matrix4[] = []; const cols: THREE.Color[] = []; const m = new THREE.Matrix4(); const pal = [0xF3CDB6, 0xF1C2C4, 0xF6E3B0, 0xCDE7D2, 0xC4DEF1, 0xDCD0EE, 0xF4D5BC, 0xD3E8D9, 0xF0CBD3, 0xE6DEC2];
     for (let x = -240; x < 1000; x += cell) for (let z = -900; z < 900; z += cell) {
       const px = x + (hash(`x${x},${z}`) - 0.5) * 6, pz = z + (hash(`z${x},${z}`) - 0.5) * 6; if (px < this.coastX(pz) + 10) continue;
       if (px > bx[0] && px < bx[1] && pz > bx[2] && pz < bx[3]) continue; if (sites.some((s) => Math.hypot(s.x - px, s.z - pz) < 26)) continue;
@@ -308,11 +317,12 @@ export class CityScene {
     const geos: THREE.BufferGeometry[] = [];
     // Game-style palette: warm plaster walls with occasional blue glass, saturated roofs (finite light-bounce look).
     // Mumbai-style palette: low blocks are painted plaster (terracotta, ochre, peach, rose, mint, sky, cream); tall blocks are glass in blue, teal or steel; a few are grey concrete.
-    const WALL = ["#E08A63", "#D9734F", "#E9A86A", "#F0C27B", "#F2B8A0", "#E5949A", "#C97B84", "#F4E3B8", "#9FCFB5", "#7FBFA8", "#8EC3E6", "#F1D9C4", "#D6A57A", "#B9C9A0", "#C7B6E0"].map((c) => new THREE.Color(c));
-    const GLASS = ["#5E9BD6", "#4F8FC9", "#6FB1DC", "#3F9FB8", "#7FA6CC", "#5B7FB0"].map((c) => new THREE.Color(c));
-    const CONC = ["#B8B2A7", "#A9A49C", "#C8C0B2"].map((c) => new THREE.Color(c));
-    const ROOF = ["#B5563C", "#8D9BA8", "#C76D4F", "#A97C50", "#6E8498", "#4E6E8C", "#9A4B38"].map((c) => new THREE.Color(c));
-    const put = (arr: Float32Array, i: number, c: THREE.Color, k: number) => { const w = 0.02; arr[i * 3] = c.r * k * (1 - w) + w; arr[i * 3 + 1] = c.g * k * (1 - w) + w; arr[i * 3 + 2] = c.b * k * (1 - w) + w; };  // only a hint of wash: keep the game colour
+    // Soft pastel tints (peach, rose, butter, mint, sky, lilac): enough colour to read as a living city, never enough to compete with the nodes.
+    const WALL = ["#F3C3A8", "#F0B4BC", "#F5DFA0", "#BFE2C6", "#B5D8EE", "#D3C4EA", "#F4CBAE", "#C9E4CF", "#EFBFCB", "#E2D9B8", "#B9DDE3", "#EDD2B0"].map((c) => new THREE.Color(c));
+    const GLASS = ["#B5D6EE", "#A9D0E4", "#BCDAEC", "#A8D6D0", "#BFD3EE", "#B0C6E4"].map((c) => new THREE.Color(c));
+    const CONC = ["#DAD6CC", "#D2CEC4", "#E0DBCE"].map((c) => new THREE.Color(c));
+    const ROOF = ["#E3AF98", "#B9C8D6", "#E6B9A6", "#D5BD9E", "#AFC2D4", "#A9BDD1", "#DEA997"].map((c) => new THREE.Color(c));
+    const put = (arr: Float32Array, i: number, c: THREE.Color, k: number) => { const w = 0.1; arr[i * 3] = c.r * k * (1 - w) + w; arr[i * 3 + 1] = c.g * k * (1 - w) + w; arr[i * 3 + 2] = c.b * k * (1 - w) + w; };  // only a hint of wash: keep the game colour
     for (const bd of b) {
       const pts = bd.p.map((q: number[]) => new THREE.Vector2((q[0] - o[1]) * 111320 * cosl * S, (q[1] - o[0]) * 110540 * S)); if (pts.length < 3) continue;
       const key = JSON.stringify(bd.p[0]); const hm = bd.h || (bd.lv ? bd.lv * 3.2 : 6 + hash(key) * 16); let ge: THREE.ExtrudeGeometry;
@@ -409,13 +419,27 @@ export class CityScene {
   buildCyber() {
     const A = this.st.assets; const groups = new Map<string, string[]>();
     for (const [id, a] of Object.entries<any>(A)) { const k = `${Math.round(a.xz[0] / 40)}_${Math.round(a.xz[1] / 40)}`; (groups.get(k) || groups.set(k, []).get(k)!).push(id); }
+    // Positions first: devices near each other are fanned out in a ring, then a short relaxation pass pushes apart any two that are still closer than MIN_GAP while a weak spring keeps each near its real place.
+    const MIN_GAP = 21; const anchor = new Map<string, THREE.Vector3>(); const pos = new Map<string, THREE.Vector3>();
     for (const [, ids] of groups) ids.forEach((id, i) => {
+      const a = A[id]; const ang = (i / ids.length) * Math.PI * 2 + 0.6, rad = ids.length > 1 ? 11 + ids.length * 2.4 : 0;
+      let base = this.p(a.xz, 0); if (id === "INTERNET") base = new THREE.Vector3(-30, 0, -250);
+      anchor.set(id, base.clone()); pos.set(id, base.clone().add(new THREE.Vector3(Math.cos(ang) * rad, 0, Math.sin(ang) * rad)));
+    });
+    const mov = [...pos.keys()].filter((k) => k !== "INTERNET");
+    for (let it = 0; it < 90; it++) {
+      for (let i = 0; i < mov.length; i++) for (let j = i + 1; j < mov.length; j++) {
+        const pa = pos.get(mov[i])!, pb = pos.get(mov[j])!; let dx = pb.x - pa.x, dz = pb.z - pa.z; let d = Math.hypot(dx, dz);
+        if (d >= MIN_GAP) continue; if (d < 0.01) { dx = Math.cos(i * 2.4); dz = Math.sin(i * 2.4); d = 1; }
+        const push = (MIN_GAP - d) / 2 * 0.6; pa.x -= dx / d * push; pa.z -= dz / d * push; pb.x += dx / d * push; pb.z += dz / d * push;
+      }
+      for (const k of mov) { const q = pos.get(k)!, an = anchor.get(k)!; q.x += (an.x - q.x) * 0.02; q.z += (an.z - q.z) * 0.02; }
+    }
+    for (const [, ids] of groups) ids.forEach((id) => {
       const a = A[id]; const lc = LAYER_COL[a.layer] ?? N.aquaD; const mat = new THREE.MeshStandardMaterial({ color: lc, roughness: 0.4, metalness: 0.1 });
       const mesh = new THREE.Mesh(a.layer === "internet" ? new THREE.IcosahedronGeometry(7, 1) : new THREE.CylinderGeometry(4.6, 5.2, 1.5, 24), mat); mesh.userData.id = id;
-      const icon = iconSprite(ICON_OF(id, a.layer), "#" + lc.toString(16).padStart(6, "0"), id === "INTERNET" ? 13 : 9.5); icon.position.y = id === "INTERNET" ? 0 : 6.5; icon.userData.id = id; mesh.add(icon);
-      const ang = (i / ids.length) * Math.PI * 2, rad = ids.length > 1 ? 6 + ids.length * 0.8 : 0;
-      let base = this.p(a.xz, 0); if (id === "INTERNET") base = new THREE.Vector3(-30, 0, -250);
-      const city = base.clone().add(new THREE.Vector3(Math.cos(ang) * rad, 0, Math.sin(ang) * rad)); city.y = id === "INTERNET" ? 110 : a.layer === "field" ? 9 : a.layer === "control" ? 13 : a.layer === "dmz" ? 17 : 21;
+      const icon = iconSprite(ICON_OF(id, a.layer), "#" + lc.toString(16).padStart(6, "0"), id === "INTERNET" ? 14 : 11.5); icon.position.y = id === "INTERNET" ? 0 : 6.5; icon.userData.id = id; mesh.add(icon);
+      const city = pos.get(id)!.clone(); city.y = id === "INTERNET" ? 110 : a.layer === "field" ? 9 : a.layer === "control" ? 13 : a.layer === "dmz" ? 17 : 21;
       const stack = city.clone(); stack.y = STACK_Y[a.layer] ?? 40; if (id === "INTERNET") stack.set(-30, 120, -240);
       const ring = new THREE.Mesh(new THREE.TorusGeometry(5.6, 0.34, 8, 40), new THREE.MeshBasicMaterial({ color: N.terra, transparent: true, opacity: 0 })); ring.rotation.x = Math.PI / 2; mesh.add(ring);
       this.hit(mesh, 6.5, id); mesh.position.copy(city); this.root.add(mesh); this.pickables.push(mesh);

@@ -15,13 +15,13 @@ from .watchdog import CS_H_ADD, CS_H_MUL, CS_K_SD, Traffic, Watchdog
 REGIMES = [(0.0, None, 14.0), (0.35, None, 14.0), (0.0, 3.0, 14.0), (0.6, 2.0, 11.0), (0.2, 6.0, 17.0), (0.0, None, 14.0)]
 
 
-def build_watchdog(ward, threat, seed=0, episodes=36, verbose=False):
+def build_watchdog(ward, threat, seed=0, episodes=48, verbose=False):
     """Train the fusion model on labelled simulated episodes (normal vs each attack mode)."""
     tr = Traffic(ward, seed=seed + 11)
     wd = Watchdog(ward, tr, seed=seed)
     rng = np.random.default_rng(seed + 5)
     X, y, calm = [], [], {}
-    modes = ["standard", "zero_day", "spoof", "wear", "insider"]
+    modes = ["standard", "zero_day", "spoof", "wear", "insider", "swarm"]
     for ep in range(episodes):
         tw = LiveTwin(ward, seed=seed + ep)
         for _ in range(90):
@@ -32,7 +32,14 @@ def build_watchdog(ward, threat, seed=0, episodes=36, verbose=False):
         env = Environment(ward, threat, seed=seed + 200 + ep)
         attack = ep % 3 != 0  # one third pure normal
         mode = modes[(ep // 3) % len(modes)] if attack else "none"
-        camp = adv.launch(tw.minute, mode=mode, stealth=float(rng.uniform(1.5, 8.0)), goal=str(rng.choice([c for c in adv.goals]))) if attack else None
+        if attack and mode == "swarm":      # several very quiet attackers at once, at different doors
+            doors = [n for n, a_ in ward["assets"].items() if a_["entry_weight"] > 0]
+            for d_ in rng.choice(doors, size=5, replace=False):
+                c_ = adv.launch(tw.minute, mode="standard", entry=str(d_), stealth=0.8, goal=str(rng.choice([c for c in adv.goals])))
+                c_.quiet = True
+            camp = adv.campaigns[0]
+        else:
+            camp = adv.launch(tw.minute, mode=mode, stealth=float(rng.uniform(1.5, 8.0)), goal=str(rng.choice([c for c in adv.goals]))) if attack else None
         started_phys = False
         for k in range(260):
             minute = tw.minute

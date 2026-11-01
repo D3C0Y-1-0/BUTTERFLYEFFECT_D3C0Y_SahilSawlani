@@ -1,0 +1,1 @@
+{"key": "760a00f53bd03553", "nodes": ["JUMP_RDS", "VPN_VENDOR", "SCADA_SRV", "ENG_WS", "SCADA_WEB", "HIST_01", "FW_PERIM", "GW_LIGHT_01", "OFFICE_PC_01"], "risk_after": 0.1811}

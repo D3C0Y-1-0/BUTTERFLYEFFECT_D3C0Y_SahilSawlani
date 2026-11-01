@@ -6,7 +6,7 @@ from pathlib import Path
 D = Path(__file__).resolve().parents[1] / "decoy"
 DEFENCE_FILES = ["watchdog.py", "healer.py", "planner.py"]
 DEFENCE_METHODS = ["_incident_logic", "_new_incident", "_flood_guard", "_flood_note", "_escalate", "_request_decision", "_decide_job", "_propose", "_apply_step", "_verify",
-                   "_heartbeat", "_zd_assess", "_zd_pipeline", "_suspect_products", "_rl_tick", "_uses_ppo", "approve", "_auto_guard", "_sensitive_nodes"]
+                   "_heartbeat", "_zd_assess", "_zd_pipeline", "_suspect_products", "_rl_tick", "_uses_ppo", "approve", "_auto_guard", "_sensitive_nodes", "_step_hold", "_guard_steps", "_operator_tick"]
 ATTACKER_ONLY = {"adv", "adv_none", "adv_iso", "campaigns", "Adversary", "env_live", "env_none", "env_iso", "Campaign"}
 DEFENCE_WORDS = {"Defence", "defence", "healer", "watchdog", "planner", "quarantined", "blocked_edges", "Healer", "Watchdog", "Planner", "zd_mult", "cve_mult"}
 
